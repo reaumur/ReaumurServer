@@ -1,0 +1,757 @@
+#include <inttypes.h>
+#include "application.h"
+#include "spark_wiring_string.h"
+#include "spark_wiring_tcpclient.h"
+#include "spark_wiring_usbserial.h"
+#define MAXTIMINGS 85
+#define cli noInterrupts
+#define sei interrupts
+#define DHT11 11
+#define DHT21 21
+#define DHT22 22
+
+static const char* HTTP_METHOD_GET    = "GET";
+static const char* HTTP_METHOD_POST   = "POST";
+static const char* HTTP_METHOD_PUT    = "PUT";
+static const char* HTTP_METHOD_DELETE = "DELETE";
+static const char* HTTP_METHOD_PATCH = "PATCH";
+
+typedef struct {
+  String hostname;
+  IPAddress ip;
+  String path;
+  int port;
+  String body;
+} http_request_t;
+
+typedef struct {
+  int status;
+  String body;
+} http_response_t;
+
+class HttpClient {
+public:
+    TCPClient client;
+    char buffer[1024];
+
+    HttpClient(void);
+
+    void request(http_request_t &aRequest, http_response_t &aResponse, const char* aHttpMethod);
+    void sendHeader(const char* aHeaderName, const char* aHeaderValue);
+    void sendHeader(const char* aHeaderName, const int aHeaderValue);
+    void sendHeader(const char* aHeaderName);
+};
+
+static const uint16_t TIMEOUT = 5000;
+
+HttpClient::HttpClient() {
+}
+
+void HttpClient::sendHeader(const char* aHeaderName, const char* aHeaderValue) {
+    client.print(aHeaderName);
+    client.print(": ");
+    client.println(aHeaderValue);
+}
+
+void HttpClient::sendHeader(const char* aHeaderName, const int aHeaderValue) {
+    client.print(aHeaderName);
+    client.print(": ");
+    client.println(aHeaderValue);
+}
+
+void HttpClient::sendHeader(const char* aHeaderName) {
+    client.println(aHeaderName);
+}
+
+void HttpClient::request(http_request_t &aRequest, http_response_t &aResponse, const char* aHttpMethod) {
+    aResponse.status = -1;
+
+    bool connected = false;
+    if(aRequest.hostname!=NULL) {
+        connected = client.connect(aRequest.hostname.c_str(), (aRequest.port) ? aRequest.port : 80 );
+    }   else {
+        connected = client.connect(aRequest.ip, aRequest.port);
+    }
+
+    if (!connected) {
+        client.stop();
+        return;
+    }
+
+    client.print(aHttpMethod);
+    client.print(" ");
+    client.print(aRequest.path);
+    client.print(" HTTP/1.0\r\n");
+
+    sendHeader("Connection", "close");
+    if(aRequest.hostname!=NULL) {
+        sendHeader("HOST", aRequest.hostname.c_str());
+    }
+
+    if (aRequest.body != NULL) {
+        sendHeader("Content-Length", (aRequest.body).length());
+    } else if (strcmp(aHttpMethod, HTTP_METHOD_POST) == 0) {
+        sendHeader("Content-Length", 0);
+    }
+
+    client.println();
+    client.flush();
+
+    if (aRequest.body != NULL) {
+        client.println(aRequest.body);
+    }
+
+    memset(&buffer[0], 0, sizeof(buffer));
+
+    unsigned int bufferPosition = 0;
+    unsigned long lastRead = millis();
+    unsigned long firstRead = millis();
+    bool error = false;
+    bool timeout = false;
+
+    do {
+        while (client.available()) {
+            char c = client.read();
+            lastRead = millis();
+
+            if (c == -1) {
+                error = true;
+                break;
+            }
+
+            if (bufferPosition < sizeof(buffer)-1) {
+                buffer[bufferPosition] = c;
+            } else if ((bufferPosition == sizeof(buffer)-1)) {
+                buffer[bufferPosition] = '\0';
+                client.stop();
+                error = true;
+            }
+            bufferPosition++;
+        }
+        buffer[bufferPosition] = '\0';
+
+        timeout = millis() - lastRead > TIMEOUT;
+
+        if (!error && !timeout) {
+            delay(200);
+        }
+    } while (client.connected() && !timeout && !error);
+
+    client.stop();
+
+    String raw_response(buffer);
+
+    String statusCode = raw_response.substring(9,12);
+
+    int bodyPos = raw_response.indexOf("\r\n\r\n");
+    if (bodyPos == -1) {
+        return;
+    }
+    aResponse.body = "";
+    aResponse.body += raw_response.substring(bodyPos+4);
+    aResponse.status = atoi(statusCode.c_str());
+}
+
+class OneWire {
+private:
+  uint16_t _pin;
+
+  #if PLATFORM_ID == 0 // Core
+    inline void digitalWriteFastLow() {
+      PIN_MAP[_pin].gpio_peripheral->BRR = PIN_MAP[_pin].gpio_pin;
+    }
+
+    inline void digitalWriteFastHigh() {
+      PIN_MAP[_pin].gpio_peripheral->BSRR = PIN_MAP[_pin].gpio_pin;
+    }
+
+    inline void pinModeFastOutput() {
+      GPIO_TypeDef *gpio_port = PIN_MAP[_pin].gpio_peripheral;
+      uint16_t gpio_pin = PIN_MAP[_pin].gpio_pin;
+
+      GPIO_InitTypeDef GPIO_InitStructure;
+
+      if (gpio_port == GPIOA )
+      {
+        RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOA, ENABLE);
+      }
+      else if (gpio_port == GPIOB )
+      {
+        RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOB, ENABLE);
+      }
+
+      GPIO_InitStructure.GPIO_Pin = gpio_pin;
+      GPIO_InitStructure.GPIO_Mode = GPIO_Mode_Out_PP;
+      GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;
+      PIN_MAP[_pin].pin_mode = OUTPUT;
+      GPIO_Init(gpio_port, &GPIO_InitStructure);
+    }
+
+    inline void pinModeFastInput() {
+      GPIO_TypeDef *gpio_port = PIN_MAP[_pin].gpio_peripheral;
+      uint16_t gpio_pin = PIN_MAP[_pin].gpio_pin;
+
+      GPIO_InitTypeDef GPIO_InitStructure;
+
+      if (gpio_port == GPIOA )
+      {
+        RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOA, ENABLE);
+      }
+      else if (gpio_port == GPIOB )
+      {
+        RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOB, ENABLE);
+      }
+
+      GPIO_InitStructure.GPIO_Pin = gpio_pin;
+      GPIO_InitStructure.GPIO_Mode = GPIO_Mode_IN_FLOATING;
+      PIN_MAP[_pin].pin_mode = INPUT;
+      GPIO_Init(gpio_port, &GPIO_InitStructure);
+    }
+
+    inline uint8_t digitalReadFast() {
+      return GPIO_ReadInputDataBit(PIN_MAP[_pin].gpio_peripheral, PIN_MAP[_pin].gpio_pin);
+    }
+
+  #elif PLATFORM_ID == 6 || PLATFORM_ID == 8 || PLATFORM_ID == 10
+    STM32_Pin_Info* PIN_MAP = HAL_Pin_Map();
+
+    inline void digitalWriteFastLow() {
+      PIN_MAP[_pin].gpio_peripheral->BSRRH = PIN_MAP[_pin].gpio_pin;
+    }
+
+    inline void digitalWriteFastHigh() {
+      PIN_MAP[_pin].gpio_peripheral->BSRRL = PIN_MAP[_pin].gpio_pin;
+    }
+
+    inline void pinModeFastOutput(void){
+      HAL_Pin_Mode(_pin, OUTPUT);
+    }
+
+    inline void pinModeFastInput(void){
+      HAL_Pin_Mode(_pin, INPUT);
+    }
+
+    inline uint8_t digitalReadFast(void){
+      return HAL_GPIO_Read(_pin);
+    }
+
+  #else
+    #error "*** PLATFORM_ID not supported by this library. PLATFORM should be Core, Photon, P1 or Electron ***"
+  #endif
+
+    unsigned char ROM_NO[8];
+    uint8_t LastDiscrepancy;
+    uint8_t LastFamilyDiscrepancy;
+    uint8_t LastDeviceFlag;
+
+  public:
+    OneWire( uint16_t pin);
+    uint8_t reset(void);
+    void select(const uint8_t rom[8]);
+    void skip(void);
+    void write(uint8_t v, uint8_t power = 0);
+    void write_bytes(const uint8_t *buf, uint16_t count, bool power = 0);
+    uint8_t read(void);
+    void read_bytes(uint8_t *buf, uint16_t count);
+    void write_bit(uint8_t v);
+    uint8_t read_bit(void);
+    void depower(void);
+    void reset_search();
+    void target_search(uint8_t family_code);
+    uint8_t search(uint8_t *newAddr);
+    static uint8_t crc8(uint8_t *addr, uint8_t len);
+    static bool check_crc16(const uint8_t* input, uint16_t len, const uint8_t* inverted_crc, uint16_t crc = 0);
+    static uint16_t crc16(const uint8_t* input, uint16_t len, uint16_t crc = 0);
+};
+
+OneWire::OneWire(uint16_t pin) {
+    pinMode(pin, INPUT);
+    _pin = pin;
+}
+
+uint8_t OneWire::reset(void) {
+    uint8_t r;
+    uint8_t retries = 125;
+    noInterrupts();
+    pinModeFastInput();
+    interrupts();
+    do {
+        if (--retries == 0) return 0;
+
+        delayMicroseconds(2);
+    } while ( !digitalReadFast());
+    noInterrupts();
+    digitalWriteFastLow();
+    pinModeFastOutput();
+    interrupts();
+    delayMicroseconds(480);
+    noInterrupts();
+    pinModeFastInput();
+    delayMicroseconds(70);
+    r =! digitalReadFast();
+    interrupts();
+    delayMicroseconds(410);
+    return r;
+}
+
+void OneWire::write_bit(uint8_t v) {
+    if (v & 1) {
+        noInterrupts();
+        digitalWriteFastLow();
+        pinModeFastOutput();
+        delayMicroseconds(10);
+        digitalWriteFastHigh();
+        interrupts();
+        delayMicroseconds(55);
+    } else {
+        noInterrupts();
+        digitalWriteFastLow();
+        pinModeFastOutput();
+        delayMicroseconds(65);
+        digitalWriteFastHigh();
+        interrupts();
+        delayMicroseconds(5);
+    }
+}
+
+uint8_t OneWire::read_bit(void) {
+    uint8_t r;
+    noInterrupts();
+    pinModeFastOutput();
+    digitalWriteFastLow();
+    delayMicroseconds(3);
+    pinModeFastInput();
+    delayMicroseconds(10);
+    r = digitalReadFast();
+    interrupts();
+    delayMicroseconds(53);
+    return r;
+}
+
+void OneWire::write(uint8_t v, uint8_t power) {
+    uint8_t bitMask;
+    for (bitMask = 0x01; bitMask; bitMask <<= 1) {
+        OneWire::write_bit( (bitMask & v)?1:0);
+    }
+    if ( !power) {
+        noInterrupts();
+        pinModeFastInput();
+        digitalWriteFastLow();
+        interrupts();
+    }
+}
+
+void OneWire::write_bytes(const uint8_t *buf, uint16_t count, bool power) {
+    for (uint16_t i = 0 ; i < count ; i++)
+        write(buf[i]);
+    if (!power) {
+        noInterrupts();
+        pinModeFastInput();
+        digitalWriteFastLow();
+        interrupts();
+    }
+}
+
+uint8_t OneWire::read() {
+    uint8_t bitMask;
+    uint8_t r = 0;
+    for (bitMask = 0x01; bitMask; bitMask <<= 1) {
+        if ( OneWire::read_bit()) r |= bitMask;
+    }
+    return r;
+}
+
+void OneWire::read_bytes(uint8_t *buf, uint16_t count) {
+    for (uint16_t i = 0 ; i < count ; i++)
+        buf[i] = read();
+}
+
+void OneWire::select(const uint8_t rom[8]) {
+    uint8_t i;
+    write(0x55);
+    for (i = 0; i < 8; i++) write(rom[i]);
+}
+
+void OneWire::skip() {
+    write(0xCC);
+}
+
+void OneWire::depower() {
+    noInterrupts();
+    pinModeFastInput();
+    interrupts();
+}
+
+void OneWire::reset_search() {
+    LastDiscrepancy = 0;
+    LastDeviceFlag = FALSE;
+    LastFamilyDiscrepancy = 0;
+    for(int i = 7; ; i--) {
+        ROM_NO[i] = 0;
+        if ( i == 0) break;
+    }
+}
+
+void OneWire::target_search(uint8_t family_code) {
+   ROM_NO[0] = family_code;
+   for (uint8_t i = 1; i < 8; i++)
+      ROM_NO[i] = 0;
+   LastDiscrepancy = 64;
+   LastFamilyDiscrepancy = 0;
+   LastDeviceFlag = FALSE;
+}
+
+uint8_t OneWire::search(uint8_t *newAddr){
+    uint8_t id_bit_number;
+    uint8_t last_zero, rom_byte_number, search_result;
+    uint8_t id_bit, cmp_id_bit;
+    unsigned char rom_byte_mask, search_direction;
+    id_bit_number = 1;
+    last_zero = 0;
+    rom_byte_number = 0;
+    rom_byte_mask = 1;
+    search_result = 0;
+    if (!LastDeviceFlag){
+        if (!reset()){
+            LastDiscrepancy = 0;
+            LastDeviceFlag = FALSE;
+            LastFamilyDiscrepancy = 0;
+
+            return FALSE;
+        }
+        write(0xF0);
+        do{
+            id_bit = read_bit();
+            cmp_id_bit = read_bit();
+            if ((id_bit == 1) && (cmp_id_bit == 1)){
+                break;
+            }
+            else{
+                if (id_bit != cmp_id_bit){
+                    search_direction = id_bit;
+                }
+                else{
+                    if (id_bit_number < LastDiscrepancy)
+                        search_direction = ((ROM_NO[rom_byte_number] & rom_byte_mask) > 0);
+                    else
+                        search_direction = (id_bit_number == LastDiscrepancy);
+                    if (search_direction == 0){
+                        last_zero = id_bit_number;
+                        if (last_zero < 9)
+                            LastFamilyDiscrepancy = last_zero;
+                    }
+                }
+                if (search_direction == 1)
+                  ROM_NO[rom_byte_number] |= rom_byte_mask;
+                else
+                  ROM_NO[rom_byte_number] &= ~rom_byte_mask;
+                write_bit(search_direction);
+                id_bit_number++;
+                rom_byte_mask <<= 1;
+                if (rom_byte_mask == 0){
+                    rom_byte_number++;
+                    rom_byte_mask = 1;
+                }
+            }
+        }while(rom_byte_number < 8);
+        if (!(id_bit_number < 65)){
+            LastDiscrepancy = last_zero;
+            if (LastDiscrepancy == 0)
+                LastDeviceFlag = TRUE;
+            search_result = TRUE;
+        }
+    }
+    if (!search_result || !ROM_NO[0]){
+        LastDiscrepancy = 0;
+        LastDeviceFlag = FALSE;
+        LastFamilyDiscrepancy = 0;
+        search_result = FALSE;
+    }
+    for (int i = 0; i < 8; i++) newAddr[i] = ROM_NO[i];
+    return search_result;
+}
+
+uint8_t OneWire::crc8( uint8_t *addr, uint8_t len) {
+    uint8_t crc = 0;
+    while (len--) {
+        uint8_t inbyte = *addr++;
+        for (uint8_t i = 8; i; i--) {
+            uint8_t mix = (crc ^ inbyte) & 0x01;
+            crc >>= 1;
+            if (mix) crc ^= 0x8C;
+                inbyte >>= 1;
+        }
+    }
+    return crc;
+}
+
+bool OneWire::check_crc16(const uint8_t* input, uint16_t len, const uint8_t* inverted_crc, uint16_t crc) {
+    crc = ~crc16(input, len, crc);
+    return (crc & 0xFF) == inverted_crc[0] && (crc >> 8) == inverted_crc[1];
+}
+
+uint16_t OneWire::crc16(const uint8_t* input, uint16_t len, uint16_t crc) {
+    static const uint8_t oddparity[16] =
+        { 0, 1, 1, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 1, 1, 0 };
+    for (uint16_t i = 0 ; i < len ; i++) {
+        uint16_t cdata = input[i];
+        cdata = (cdata ^ crc) & 0xff;
+        crc >>= 8;
+        if (oddparity[cdata & 0x0F] ^ oddparity[cdata >> 4])
+            crc ^= 0xC001;
+        cdata <<= 6;
+        crc ^= cdata;
+        cdata <<= 1;
+        crc ^= cdata;
+    }
+    return crc;
+}
+
+class SwitchDevice {
+public:
+  SwitchDevice(String _deviceObjectId, String _containerObjectId, int _hostPin, unsigned long _cycleTimeLimit, boolean _activeLow, boolean _backup);
+  String deviceObjectId;
+  String containerObjectId;
+  int hostPin;
+  unsigned long cycleTimeLimit;
+  unsigned long lastCycle;
+  boolean turnedOn;
+  int forceMode;
+  boolean sentCycleLog;
+  boolean activeLow;
+  boolean backup;
+};
+
+class DigitalTemperatureDevice {
+public:
+  DigitalTemperatureDevice(String _deviceId, String _deviceObjectId, String _containerObjectId, boolean _useForControl, double _maxTemperature, double _minTemperature);
+  String deviceId;
+  String deviceObjectId;
+  String containerObjectId;
+  double temperature;
+  boolean useForControl;
+  boolean updated;
+  int largeChangeCount;
+  double maxTemperature;
+  double minTemperature;
+};
+
+class HumidityDevice {
+public:
+  HumidityDevice(int _hostPin, int _type, String _deviceObjectId, String _containerObjectId);
+  int hostPin;
+  String deviceObjectId;
+  String containerObjectId;
+  double temperature;
+  double humidity;
+  boolean updated;
+  uint8_t data[6];
+  unsigned long lastreadtime;
+  bool firstreading;
+  int type;
+  bool read(void);
+  float readTemperature(bool S=false);
+  float convertCtoF(float);
+  float readHumidity(void);
+};
+
+//boolean S == Scale.  True == Farenheit; False == Celcius
+float HumidityDevice::readTemperature(bool S) {
+    float _f;
+    if (read()) {
+        switch (type) {
+            case DHT11:
+                _f = data[2];
+
+                if(S)
+                    _f = convertCtoF(_f);
+
+                return _f;
+            case DHT22:
+            case DHT21:
+                _f = data[2] & 0x7F;
+                _f *= 256;
+                _f += data[3];
+                _f /= 10;
+
+                if (data[2] & 0x80)
+                    _f *= -1;
+
+                if(S)
+                    _f = convertCtoF(_f);
+
+                return _f;
+        }
+    }
+
+    return -100;
+}
+
+float HumidityDevice::convertCtoF(float c) {
+    return c * 9 / 5 + 32;
+}
+
+float HumidityDevice::readHumidity(void) {
+    float _f;
+    if (read()) {
+        switch (type) {
+            case DHT11:
+                _f = data[0];
+                return _f;
+            case DHT22:
+            case DHT21:
+                _f = data[0];
+                _f *= 256;
+                _f += data[1];
+                _f /= 10;
+                return _f;
+        }
+    }
+
+    return -100;
+}
+
+bool HumidityDevice::read(void) {
+    uint8_t laststate = HIGH;
+    uint8_t counter = 0;
+    uint8_t j = 0, i;
+    unsigned long currenttime;
+    digitalWrite(hostPin, HIGH);
+    delay(250);
+
+    currenttime = millis();
+    if (currenttime < lastreadtime) {
+        lastreadtime = 0;
+    }
+
+    if (!firstreading && ((currenttime - lastreadtime) < 2000)) {
+        return true;
+    }
+
+    firstreading = false;
+    lastreadtime = millis();
+
+    data[0] = data[1] = data[2] = data[3] = data[4] = 0;
+
+    pinMode(hostPin, OUTPUT);
+    digitalWrite(hostPin, LOW);
+    delay(20);
+    cli();
+    digitalWrite(hostPin, HIGH);
+    delayMicroseconds(40);
+    pinMode(hostPin, INPUT);
+
+    for (i=0; i< MAXTIMINGS; i++) {
+        counter = 0;
+
+        while (digitalRead(hostPin) == laststate) {
+            counter++;
+            delayMicroseconds(1);
+
+            if (counter == 255)
+                break;
+        }
+
+        laststate = digitalRead(hostPin);
+
+        if (counter == 255)
+            break;
+
+        if ((i >= 4) && (i%2 == 0)) {
+            data[j/8] <<= 1;
+            if (counter > 6)
+                data[j/8] |= 1;
+            j++;
+        }
+    }
+
+    sei();
+
+    if ((j >= 40) &&  (data[4] == ((data[0] + data[1] + data[2] + data[3]) & 0xFF)))
+        return true;
+
+    return false;
+}
+
+class Container {
+public:
+  Container(String _containerObjectId, double _maxTemperature, double _minTemperature, double _wantedHeatTemperature, double _turnOnBelowHeatTemperature, double _turnOffAboveHeatTemperature, double _wantedCoolTemperature, double _turnOnAboveCoolTemperature, double _turnOffBelowCoolTemperature, int _conflictAction);
+  String containerObjectId;
+  double maxTemperature;
+  double minTemperature;
+  double wantedHeatTemperature;
+  double turnOnBelowHeatTemperature;
+  double turnOffAboveHeatTemperature;
+  double wantedCoolTemperature;
+  double turnOnAboveCoolTemperature;
+  double turnOffBelowCoolTemperature;
+  int conflictAction;
+  int forceMode;
+};
+
+class ScheduledTemperature {
+public:
+  ScheduledTemperature(String _containerObjectId, int _startTime, int _endTime, double _heatTemperature, double _coolTemperature);
+  String containerObjectId;
+  int startTime;
+  int endTime;
+  double heatTemperature;
+  double coolTemperature;
+};
+
+SwitchDevice::SwitchDevice(String _deviceObjectId, String _containerObjectId, int _hostPin, unsigned long _cycleTimeLimit, boolean _activeLow, boolean _backup) {
+  deviceObjectId = _deviceObjectId;
+  containerObjectId = _containerObjectId;
+  hostPin = _hostPin;
+  cycleTimeLimit = _cycleTimeLimit;
+  lastCycle = 0;
+  turnedOn = false;
+  sentCycleLog = false;
+  activeLow = _activeLow;
+  backup = _backup;
+}
+
+DigitalTemperatureDevice::DigitalTemperatureDevice(String _deviceId, String _deviceObjectId, String _containerObjectId, boolean _useForControl, double _maxTemperature, double _minTemperature) {
+  deviceId = _deviceId;
+  deviceObjectId = _deviceObjectId;
+  containerObjectId = _containerObjectId;
+  temperature = -100;
+  useForControl = _useForControl;
+  updated = false;
+  largeChangeCount = 0;
+  maxTemperature = _maxTemperature;
+  minTemperature = _minTemperature;
+}
+
+HumidityDevice::HumidityDevice(int _hostPin, int _type, String _deviceObjectId, String _containerObjectId) {
+  hostPin = _hostPin;
+  type = _type;
+  deviceObjectId = _deviceObjectId;
+  containerObjectId = _containerObjectId;
+  temperature = -100;
+  humidity = -100;
+  updated = false;
+  firstreading = true;
+  lastreadtime = 0;
+}
+
+Container::Container(String _containerObjectId, double _maxTemperature, double _minTemperature, double _wantedHeatTemperature, double _turnOnBelowHeatTemperature, double _turnOffAboveHeatTemperature, double _wantedCoolTemperature, double _turnOnAboveCoolTemperature, double _turnOffBelowCoolTemperature, int _conflictAction) {
+  containerObjectId = _containerObjectId;
+  maxTemperature = _maxTemperature;
+  minTemperature = _minTemperature;
+  wantedHeatTemperature = _wantedHeatTemperature;
+  turnOnBelowHeatTemperature = _turnOnBelowHeatTemperature;
+  turnOffAboveHeatTemperature = _turnOffAboveHeatTemperature;
+  wantedCoolTemperature = _wantedCoolTemperature;
+  turnOnAboveCoolTemperature = _turnOnAboveCoolTemperature;
+  turnOffBelowCoolTemperature = _turnOffBelowCoolTemperature;
+  conflictAction = _conflictAction;
+}
+
+ScheduledTemperature::ScheduledTemperature(String _containerObjectId, int _startTime, int _endTime, double _heatTemperature, double _coolTemperature) {
+  containerObjectId = _containerObjectId;
+  startTime = _startTime;
+  endTime = _endTime;
+  heatTemperature = _heatTemperature;
+  coolTemperature = _coolTemperature;
+}

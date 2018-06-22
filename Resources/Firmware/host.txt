@@ -1,0 +1,813 @@
+    nextTemperatureUpload = millis() + 30000;
+    sendDeviceStatus = true;
+
+    Particle.subscribe("searchOneWire", searchOneWireHandler);
+    Particle.subscribe("updateTemperature", updateTemperatureHandler);
+    Particle.subscribe("forceUpdate", forceUpdateHandler);
+    Particle.subscribe("updateForceMode", updateForceModeHandler);
+    Particle.publish("Reaumur Device Online");
+}
+
+void setOnline() {
+    http_request_t request;
+    request.hostname = apiUrl;
+    request.ip = apiIp;
+    request.port = apiPort;
+    request.path = String::format("/hostDevices/%s/ping", hostId.c_str());
+    
+    http_response_t response;
+    http.request(request, response, HTTP_METHOD_POST);
+}
+
+void setStatus(const char *deviceId, boolean turnedOn) {
+  http_request_t request;
+  request.hostname = apiUrl;
+  request.ip = apiIp;
+  request.port = apiPort;
+  request.path = String::format("/devices/%s/action?turnedOn=%d", deviceId, turnedOn);
+
+  http_response_t response;
+  http.request(request, response, HTTP_METHOD_POST);
+}
+
+void registerOneWireDevices(const char *deviceId, int oneWireType, float temperature, boolean found) {
+  http_request_t request;
+  request.hostname = apiUrl;
+  request.ip = apiIp;
+  request.port = apiPort;
+  request.path = String::format("/hostDevices/%s/devices/register?deviceId=%s&oneWireType=%d&assigned=%d&temperature=%f", hostId.c_str(), deviceId, oneWireType + 1, found, temperature);
+
+  http_response_t response;
+  http.request(request, response, HTTP_METHOD_POST);
+}
+
+void uploadTemperature(float temperature, const char *deviceObjectId) {
+    http_request_t request;
+    request.hostname = apiUrl;
+    request.ip = apiIp;
+    request.port = apiPort;
+    request.path = String::format("/devices/%s/action?temperature=%f&interval=%d", deviceObjectId, temperature, currentInterval);
+
+    http_response_t response;
+    http.request(request, response, HTTP_METHOD_POST);
+}
+
+void uploadHumitiy(float temperature, float humidity, const char *deviceObjectId) {
+    http_request_t request;
+    request.hostname = apiUrl;
+    request.ip = apiIp;
+    request.port = apiPort;
+    request.path = String::format("/devices/%s/action?temperature=%f&humidity=%f&interval=%d", deviceObjectId, temperature, humidity, currentInterval);
+
+    http_response_t response;
+    http.request(request, response, HTTP_METHOD_POST);
+}
+
+void sendLog(const char *deviceObjectId, int type, float temperature) {
+    if (updateLedPin != 666222) {
+      digitalWrite(updateLedPin, HIGH);
+    }
+
+    http_request_t request;
+    request.hostname = apiUrl;
+    request.ip = apiIp;
+    request.port = apiPort;
+    request.path = String::format("/hostDevices/%s/logs?type=%d&temperature=%f&deviceId=%s", hostId.c_str(), type, temperature, deviceObjectId);
+
+    http_response_t response;
+    http.request(request, response, HTTP_METHOD_POST);
+
+    if (updateLedPin != 666222) {
+      digitalWrite(updateLedPin, LOW);
+    }
+}
+
+void sendLogForce(const char *objectId, int mode, boolean found) {
+    if (updateLedPin != 666222) {
+      digitalWrite(updateLedPin, HIGH);
+    }
+
+    http_request_t request;
+    request.hostname = apiUrl;
+    request.ip = apiIp;
+    request.port = apiPort;
+    request.path = String::format("/hostDevices/%s/logs?type=16&mode=%d&objectId=%s&found=%d", hostId.c_str(), mode, objectId, found);
+
+    http_response_t response;
+    http.request(request, response, HTTP_METHOD_POST);
+
+    if (updateLedPin != 666222) {
+      digitalWrite(updateLedPin, LOW);
+    }
+}
+
+void sendLogAddress(const char *address, int type, float temperature) {
+    if (updateLedPin != 666222) {
+      digitalWrite(updateLedPin, HIGH);
+    }
+
+    http_request_t request;
+    request.hostname = apiUrl;
+    request.ip = apiIp;
+    request.port = apiPort;
+    request.path = String::format("/hostDevices/%s/logs?type=%d&temperature=%f&address=%s", hostId.c_str(), type, temperature, address);
+
+    http_response_t response;
+    http.request(request, response, HTTP_METHOD_POST);
+
+    if (updateLedPin != 666222) {
+      digitalWrite(updateLedPin, LOW);
+    }
+}
+
+void sendLogType(int type) {
+    if (updateLedPin != 666222) {
+      digitalWrite(updateLedPin, HIGH);
+    }
+
+    http_request_t request;
+    request.hostname = apiUrl;
+    request.ip = apiIp;
+    request.port = apiPort;
+    request.path = String::format("/hostDevices/%s/logs?type=%d", hostId.c_str(), type);
+
+    http_response_t response;
+    http.request(request, response, HTTP_METHOD_POST);
+
+    if (updateLedPin != 666222) {
+      digitalWrite(updateLedPin, LOW);
+    }
+}
+
+void checkTemperatures() {
+    for (int x = 0; x < arraySize(containers); x++) {
+      Container container = containers[x];
+      String containerId = container.containerObjectId;
+
+      boolean shouldCool = false;
+      boolean shouldHeat = false;
+
+      boolean lowTemperature = false;
+      boolean highTemperature = false;
+
+      boolean shouldContinueCool = false;
+      boolean shouldContinueHeat = false;
+
+      boolean foundFirstSensor = false;
+
+      for (int x = 0; x < arraySize(temperatureSensors); x++) {
+        DigitalTemperatureDevice temperatureDevice = temperatureSensors[x];
+        if (temperatureDevice.useForControl && temperatureDevice.temperature > -99) {
+          if (temperatureDevice.containerObjectId.equals(container.containerObjectId)) {
+            if (temperatureDevice.minTemperature > -99 && temperatureDevice.minTemperature > temperatureDevice.temperature) {
+              lowTemperature = true;
+            }
+            if (temperatureDevice.maxTemperature > -99 && temperatureDevice.maxTemperature < temperatureDevice.temperature) {
+              highTemperature = true;
+            }
+            if (container.wantedHeatTemperature > -99) {
+              if (temperatureDevice.temperature < container.wantedHeatTemperature - container.turnOnBelowHeatTemperature) {
+                shouldHeat = true;
+                shouldContinueHeat = true;
+              } else {
+                if (temperatureDevice.temperature < container.wantedHeatTemperature + container.turnOffAboveHeatTemperature && (foundFirstSensor == false || shouldContinueHeat)) {
+                  shouldContinueHeat = true;
+                } else {
+                  shouldContinueHeat = false;
+                }
+              }
+            }
+            if (container.minTemperature > -99) {
+              if (temperatureDevice.temperature < container.minTemperature) {
+                lowTemperature = true;
+              }
+            }
+            if (container.maxTemperature > -99) {
+              if (temperatureDevice.temperature > container.maxTemperature) {
+                highTemperature = true;
+              }
+            }
+            if (container.wantedCoolTemperature > -99) {
+              if (temperatureDevice.temperature > container.wantedCoolTemperature + container.turnOnAboveCoolTemperature) {
+                shouldCool = true;
+                shouldContinueCool = true;
+              } else {
+                if (temperatureDevice.temperature > container.wantedCoolTemperature - container.turnOffBelowCoolTemperature && (foundFirstSensor == false || shouldContinueCool)) {
+                  shouldContinueCool = true;
+                } else {
+                  shouldContinueCool = false;
+                }
+              }
+            }
+            foundFirstSensor = true;
+          }
+        }
+      }
+
+      if (container.forceMode == 1) {
+        shouldHeat = true;
+        shouldCool = false;
+        shouldContinueHeat = true;
+        shouldContinueCool = false;
+      } else {
+        if (container.forceMode == 2) {
+          shouldHeat = false;
+          shouldCool = true;
+          shouldContinueHeat = false;
+          shouldContinueCool = true;
+        }
+      }
+
+      if (shouldHeat && shouldCool) {
+        if (container.conflictAction == 0) {
+          shouldHeat = false;
+          shouldCool = false;
+          shouldContinueHeat = false;
+          shouldContinueCool = false;
+        }
+        if (container.conflictAction == 1) {
+          shouldHeat = true;
+          shouldCool = false;
+          shouldContinueHeat = true;
+          shouldContinueCool = false;
+        }
+        if (container.conflictAction == 2) {
+          shouldHeat = false;
+          shouldCool = true;
+          shouldContinueHeat = false;
+          shouldContinueCool = true;
+        }
+      } else {
+        if (shouldHeat) {
+          shouldCool = false;
+          shouldContinueCool = false;
+        }
+        if (shouldCool) {
+          shouldHeat = false;
+          shouldContinueHeat = false;
+        }
+      }
+
+      for (int x = 0; x < arraySize(coolingSwitches); x++) {
+        SwitchDevice coolingSwitch = coolingSwitches[x];
+        if (coolingSwitch.containerObjectId.equals(containerId)) {
+          boolean turnOn = false;
+          if (coolingSwitch.forceMode == 2) {
+            turnOn = false;
+          } else if (coolingSwitch.forceMode == 1) {
+            turnOn = true;
+          } else if (coolingSwitch.backup && highTemperature) {
+            turnOn = true;
+          } else if (coolingSwitch.backup && shouldCool && coolingSwitch.turnedOn) {
+            turnOn = true;
+          } else if (lowTemperature == true) {
+            turnOn = false;
+          } else {
+            if (shouldHeat) {
+              turnOn = false;
+            }
+            if (shouldContinueCool && coolingSwitch.turnedOn && coolingSwitch.backup == false) {
+              turnOn = true;
+            }
+            if (shouldCool && coolingSwitch.backup == false) {
+              turnOn = true;
+            }
+          }
+
+          if (turnOn) {
+            if (coolingSwitch.turnedOn == false) {
+              if ((coolingSwitch.cycleTimeLimit + coolingSwitch.lastCycle) < millis() || abs(coolingSwitch.lastCycle - millis()) > 86400000 || coolingSwitch.lastCycle == 0 || coolingSwitch.forceMode == 1) {
+                if (coolingSwitch.activeLow) {
+                  digitalWrite(coolingSwitch.hostPin, LOW);
+                } else {
+                  digitalWrite(coolingSwitch.hostPin, HIGH);
+                }
+                coolingSwitch.turnedOn = true;
+                coolingSwitch.lastCycle = millis();
+                coolingSwitch.sentCycleLog = true;
+                coolingSwitches[x] = coolingSwitch;
+                if (updateLedPin != 666222) {
+                  digitalWrite(updateLedPin, HIGH);
+                }
+                setStatus(coolingSwitch.deviceObjectId.c_str(), true);
+                if (updateLedPin != 666222) {
+                  digitalWrite(updateLedPin, LOW);
+                }
+              } else {
+                if (coolingSwitch.sentCycleLog == false) {
+                  coolingSwitch.sentCycleLog = true;
+                  coolingSwitches[x] = coolingSwitch;
+
+                  sendLog(coolingSwitch.deviceObjectId.c_str(), 3, -100);
+                }
+              }
+            }
+          } else if (coolingSwitch.turnedOn) {
+            if (coolingSwitch.activeLow) {
+              digitalWrite(coolingSwitch.hostPin, HIGH);
+            } else {
+              digitalWrite(coolingSwitch.hostPin, LOW);
+            }
+            coolingSwitch.turnedOn = false;
+            coolingSwitch.lastCycle = millis();
+            coolingSwitch.sentCycleLog = true;
+            coolingSwitches[x] = coolingSwitch;
+            if (updateLedPin != 666222) {
+              digitalWrite(updateLedPin, HIGH);
+            }
+            setStatus(coolingSwitch.deviceObjectId.c_str(), false);
+            if (updateLedPin != 666222) {
+              digitalWrite(updateLedPin, LOW);
+            }
+          }
+        }
+      }
+      for (int x = 0; x < arraySize(heatingSwitches); x++) {
+        SwitchDevice heatingSwitch = heatingSwitches[x];
+        if (heatingSwitch.containerObjectId.equals(containerId)) {
+          boolean turnOn = false;
+          if (heatingSwitch.forceMode == 2) {
+            turnOn = false;
+          } else if (heatingSwitch.forceMode == 1) {
+            turnOn = true;
+          } else if (heatingSwitch.backup && lowTemperature) {
+            turnOn = true;
+          } else if (heatingSwitch.backup && shouldHeat && heatingSwitch.turnedOn) {
+            turnOn = true;
+          } else if (highTemperature == true) {
+            turnOn = false;
+          } else {
+            if (shouldCool) {
+              turnOn = false;
+            }
+            if (shouldContinueHeat && heatingSwitch.turnedOn && heatingSwitch.backup == false) {
+              turnOn = true;
+            }
+            if (shouldHeat && heatingSwitch.backup == false) {
+              turnOn = true;
+            }
+          }
+
+          if (turnOn) {
+            if (heatingSwitch.turnedOn == false) {
+              if ((heatingSwitch.cycleTimeLimit + heatingSwitch.lastCycle) < millis() || abs(heatingSwitch.lastCycle - millis()) > 86400000 || heatingSwitch.lastCycle == 0 || heatingSwitch.forceMode == 1) {
+                if (heatingSwitch.activeLow) {
+                  digitalWrite(heatingSwitch.hostPin, LOW);
+                } else {
+                  digitalWrite(heatingSwitch.hostPin, HIGH);
+                }
+                heatingSwitch.turnedOn = true;
+                heatingSwitch.lastCycle = millis();
+                heatingSwitch.sentCycleLog = false;
+                heatingSwitches[x] = heatingSwitch;
+                if (updateLedPin != 666222) {
+                  digitalWrite(updateLedPin, HIGH);
+                }
+                setStatus(heatingSwitch.deviceObjectId.c_str(), true);
+                if (updateLedPin != 666222) {
+                  digitalWrite(updateLedPin, LOW);
+                }
+              } else {
+                if (heatingSwitch.sentCycleLog == false) {
+                  heatingSwitch.sentCycleLog = true;
+                  heatingSwitches[x] = heatingSwitch;
+
+                  sendLog(heatingSwitch.deviceObjectId.c_str(), 3, -100);
+                }
+              }
+            }
+          } else if (heatingSwitch.turnedOn) {
+            if (heatingSwitch.activeLow) {
+              digitalWrite(heatingSwitch.hostPin, HIGH);
+            } else {
+              digitalWrite(heatingSwitch.hostPin, LOW);
+            }
+            heatingSwitch.turnedOn = false;
+            heatingSwitch.lastCycle = millis();
+            heatingSwitch.sentCycleLog = false;
+            heatingSwitches[x] = heatingSwitch;
+            if (updateLedPin != 666222) {
+              digitalWrite(updateLedPin, HIGH);
+            }
+            setStatus(heatingSwitch.deviceObjectId.c_str(), false);
+            if (updateLedPin != 666222) {
+              digitalWrite(updateLedPin, LOW);
+            }
+          }
+        }
+      }
+    }
+
+    nextTemperatureCheck = millis() + 5000;
+}
+
+void uploadTemperatures() {
+  if (updateLedPin != 666222) {
+    digitalWrite(updateLedPin, HIGH);
+  }
+  setOnline();
+
+  for (int x = 0; x < arraySize(temperatureSensors); x++) {
+    DigitalTemperatureDevice temperatureDevice = temperatureSensors[x];
+    if (temperatureDevice.updated) {
+      uploadTemperature(temperatureDevice.temperature, temperatureDevice.deviceObjectId.c_str());
+      temperatureDevice.updated = false;
+      temperatureSensors[x] = temperatureDevice;
+    } else {
+        sendLog(temperatureDevice.deviceObjectId.c_str(), 7, temperatureDevice.temperature);
+    }
+  }
+
+  for (int x = 0; x < arraySize(humiditySensors); x++) {
+    HumidityDevice humidityDevice = humiditySensors[x];
+    if (humidityDevice.updated && humidityDevice.humidity > -100) {
+      uploadHumitiy(humidityDevice.temperature, humidityDevice.humidity, humidityDevice.deviceObjectId.c_str());
+      humidityDevice.updated = false;
+      humiditySensors[x] = humidityDevice;
+    } else {
+      sendLog(humidityDevice.deviceObjectId.c_str(), 7, humidityDevice.temperature);
+    }
+  }
+
+  if (sendDeviceStatus) {
+    sendLogType(14);
+    for (int x = 0; x < arraySize(coolingSwitches); x++) {
+      SwitchDevice coolingSwitch = coolingSwitches[x];
+      setStatus(coolingSwitch.deviceObjectId.c_str(), coolingSwitch.turnedOn);
+    }
+
+    for (int x = 0; x < arraySize(heatingSwitches); x++) {
+      SwitchDevice heatingSwitch = heatingSwitches[x];
+      setStatus(heatingSwitch.deviceObjectId.c_str(), heatingSwitch.turnedOn);
+    }
+    sendDeviceStatus = false;
+  }
+
+  if (updateLedPin != 666222) {
+    digitalWrite(updateLedPin, LOW);
+  }
+}
+
+void runOneWire() {
+  byte present = 0;
+  byte data[12];
+  byte address[8];
+  float celsius, fahrenheit;
+
+  if (!oneWire.search(address)) {
+    oneWireCount = 0;
+    return;
+  }
+
+  String deviceId = String::format("%02X%02X%02X%02X%02X%02X%02X", address[0], address[1], address[2], address[3], address[4], address[5], address[6], address[7]);
+
+  if (OneWire::crc8(address, 7) != address[7]) {
+      sendLogAddress(deviceId.c_str(), 4, -100);
+      if (oneWireCount < 30) {
+        oneWireCount++;
+        runOneWire();
+      }
+      return;
+  }
+
+  String deviceType;
+  int deviceTypeInt;
+  switch (address[0]) {
+    case 0x10:
+      deviceType = "DS1820/DS18S20";
+      deviceTypeInt = 0;
+      break;
+    case 0x28:
+      deviceType = "DS18B20";
+      deviceTypeInt = 1;
+      break;
+    case 0x22:
+      deviceType = "DS1822";
+      deviceTypeInt = 2;
+      break;
+    case 0x26:
+      deviceType = "DS2438";
+      deviceTypeInt = 3;
+      break;
+    default:
+      deviceType = "Unkown";
+      deviceTypeInt = -1;
+      sendLogAddress(deviceId.c_str(), 6, -100);
+      if (oneWireCount < 30) {
+        oneWireCount++;
+        runOneWire();
+      }
+      return;
+  }
+
+  oneWire.reset();
+  oneWire.select(address);
+  oneWire.write(0x44, 0);
+  delay(1250);
+
+  present = oneWire.reset();
+  oneWire.select(address);
+  oneWire.write(0xB8,0);
+  oneWire.write(0x00,0);
+
+  present = oneWire.reset();
+  oneWire.select(address);
+  oneWire.write(0xBE,0);
+  if (deviceTypeInt == 3) {
+    oneWire.write(0x00,0);
+  }
+
+  for (byte x = 0; x < 9; x++) {
+    data[x] = oneWire.read();
+  }
+
+  int16_t raw = (data[1] << 8) | data[0];
+  if (deviceTypeInt == 3) raw = (data[2] << 8) | data[1];
+  byte cfg = (data[4] & 0x60);
+
+  switch (deviceTypeInt) {
+    case 0:
+      raw = raw << 3;
+      if (data[7] == 0x10) {
+        raw = (raw & 0xFFF0) + 12 - data[6];
+      }
+      celsius = (float)raw * 0.0625;
+      break;
+    case 1:
+    case 2:
+      if (cfg == 0x00) raw = raw & ~7;
+      if (cfg == 0x20) raw = raw & ~3;
+      if (cfg == 0x40) raw = raw & ~1;
+      celsius = (float)raw * 0.0625;
+      break;
+    case 3:
+      data[1] = (data[1] >> 3) & 0x1f;
+      if (data[2] > 127) {
+        celsius = (float)data[2] - ((float)data[1] * .03125);
+      } else {
+        celsius = (float)data[2] + ((float)data[1] * .03125);
+      }
+  }
+
+  fahrenheit = celsius * 1.8 + 32.0;
+
+  if (OneWire::crc8(data, 8) != data[8]) {
+      sendLogAddress(deviceId.c_str(), 5, celsius);
+      if (oneWireCount < 30) {
+        oneWireCount++;
+        runOneWire();
+      }
+      return;
+  }
+
+  boolean found = false;
+  for (int x = 0; x < arraySize(temperatureSensors); x++) {
+    DigitalTemperatureDevice temperatureSensor = temperatureSensors[x];
+    if (temperatureSensor.deviceId.equals(deviceId)) {
+      found = true;
+
+      if (fahrenheit > -100 || fahrenheit < 200) {
+        if (abs(temperatureSensor.temperature - fahrenheit) > 10) {
+          temperatureSensor.largeChangeCount++;
+          if (sendDeviceStatus == false) {
+            sendLog(temperatureSensor.deviceObjectId.c_str(), 2, celsius);
+          }
+        }
+        if (temperatureSensor.temperature < -99 || abs(temperatureSensor.temperature - fahrenheit) < 10 || temperatureSensor.largeChangeCount > 4 || registerOneWire == true) {
+          temperatureSensor.temperature = fahrenheit;
+          temperatureSensor.largeChangeCount = 0;
+          temperatureSensor.updated = true;
+        }
+        temperatureSensors[x] = temperatureSensor;
+      } else {
+        sendLog(temperatureSensor.deviceObjectId.c_str(), 1, celsius);
+      }
+    }
+  }
+
+  if (registerOneWire) {
+    registerOneWireDevices(deviceId.c_str(), deviceTypeInt, fahrenheit, found);
+  }
+
+  if (oneWireCount < 30) {
+    oneWireCount++;
+    runOneWire();
+  }
+}
+
+void searchForOneWireSensors() {
+  if (updateLedPin != 666222) {
+    digitalWrite(updateLedPin, HIGH);
+  }
+  oneWire.reset_search();
+  delay(250);
+  registerOneWire = true;
+  oneWireCount = 0;
+  runOneWire();
+  registerOneWire = false;
+  oneWireCount = 0;
+  if (updateLedPin != 666222) {
+    digitalWrite(updateLedPin, LOW);
+  }
+}
+
+void updateTemperatureHandler(const char *event, const char *data) {
+  if (data) {
+    String stringData = String(data);
+    int seperator = stringData.indexOf(",");
+    if (seperator > 0 && stringData.length() > seperator + 2) {
+      if (updateLedPin != 666222) {
+        digitalWrite(updateLedPin, HIGH);
+        delay(60);
+        digitalWrite(updateLedPin, LOW);
+        delay(60);
+        digitalWrite(updateLedPin, HIGH);
+        delay(60);
+        digitalWrite(updateLedPin, LOW);
+        delay(60);
+        digitalWrite(updateLedPin, HIGH);
+        delay(60);
+        digitalWrite(updateLedPin, LOW);
+        delay(60);
+        digitalWrite(updateLedPin, HIGH);
+        delay(60);
+        digitalWrite(updateLedPin, LOW);
+      }
+
+      setOnline();
+
+      String objectId = stringData.substring(0, seperator);
+      float temperature = stringData.substring(seperator + 1).toFloat();
+
+      boolean found = false;
+      for (int x = 0; x < arraySize(temperatureSensors); x++) {
+        DigitalTemperatureDevice temperatureSensor = temperatureSensors[x];
+        if (temperatureSensor.deviceObjectId.equals(objectId)) {
+          found = true;
+          temperatureSensor.temperature = temperature;
+          temperatureSensor.updated = true;
+          temperatureSensors[x] = temperatureSensor;
+          if (updateLedPin != 666222) {
+            digitalWrite(updateLedPin, HIGH);
+          }
+          uploadTemperature(temperatureSensor.temperature, temperatureSensor.deviceObjectId.c_str());
+          if (updateLedPin != 666222) {
+            digitalWrite(updateLedPin, LOW);
+          }
+          break;
+        }
+      }
+    }
+  }
+}
+
+void updateForceModeHandler(const char *event, const char *data) {
+  if (data) {
+    String stringData = String(data);
+    int seperator = stringData.indexOf(",");
+    if (seperator > 0 && seperator + 1 < stringData.length()) {
+      if (updateLedPin != 666222) {
+        digitalWrite(updateLedPin, HIGH);
+        delay(60);
+        digitalWrite(updateLedPin, LOW);
+        delay(60);
+        digitalWrite(updateLedPin, HIGH);
+        delay(60);
+        digitalWrite(updateLedPin, LOW);
+        delay(60);
+        digitalWrite(updateLedPin, HIGH);
+        delay(60);
+        digitalWrite(updateLedPin, LOW);
+        delay(60);
+        digitalWrite(updateLedPin, HIGH);
+        delay(60);
+        digitalWrite(updateLedPin, LOW);
+      }
+
+      String objectId = stringData.substring(0, seperator);
+      int forceMode = stringData.substring(seperator + 1).toInt();
+
+      boolean found = false;
+      for (int x = 0; x < arraySize(containers); x++) {
+        Container container = containers[x];
+        if (container.containerObjectId.equals(objectId)) {
+          container.forceMode = forceMode;
+          containers[x] = container;
+          found = true;
+          break;
+        }
+      }
+
+      if (found == false) {
+        for (int x = 0; x < arraySize(coolingSwitches); x++) {
+          SwitchDevice coolingSwitch = coolingSwitches[x];
+          if (coolingSwitch.deviceObjectId.equals(objectId)) {
+            coolingSwitch.forceMode = forceMode;
+            coolingSwitches[x] = coolingSwitch;
+            found = true;
+            break;
+          }
+        }
+      }
+
+      if (found == false) {
+        for (int x = 0; x < arraySize(heatingSwitches); x++) {
+          SwitchDevice heatingSwitch = heatingSwitches[x];
+          if (heatingSwitch.deviceObjectId.equals(objectId)) {
+            heatingSwitch.forceMode = forceMode;
+            heatingSwitches[x] = heatingSwitch;
+            found = true;
+            break;
+          }
+        }
+      }
+      
+      sendLogForce(objectId.c_str(), forceMode, found);
+    }
+  }
+}
+
+void forceUpdateHandler(const char *event, const char *data) {
+  if (updateLedPin != 666222) {
+    digitalWrite(updateLedPin, HIGH);
+    delay(60);
+    digitalWrite(updateLedPin, LOW);
+    delay(60);
+    digitalWrite(updateLedPin, HIGH);
+    delay(60);
+    digitalWrite(updateLedPin, LOW);
+    delay(60);
+    digitalWrite(updateLedPin, HIGH);
+    delay(60);
+    digitalWrite(updateLedPin, LOW);
+    delay(60);
+    digitalWrite(updateLedPin, HIGH);
+    delay(60);
+    digitalWrite(updateLedPin, LOW);
+  }
+  int lastInterval = currentInterval;
+  currentInterval = 1;
+  searchForOneWireSensors();
+  uploadTemperatures();
+  currentInterval = lastInterval;
+  sendLogType(15);
+}
+
+void searchOneWireHandler(const char *event, const char *data) {
+  if (updateLedPin != 666222) {
+    digitalWrite(updateLedPin, HIGH);
+    delay(60);
+    digitalWrite(updateLedPin, LOW);
+    delay(60);
+    digitalWrite(updateLedPin, HIGH);
+    delay(60);
+    digitalWrite(updateLedPin, LOW);
+    delay(60);
+    digitalWrite(updateLedPin, HIGH);
+    delay(60);
+    digitalWrite(updateLedPin, LOW);
+    delay(60);
+    digitalWrite(updateLedPin, HIGH);
+    delay(60);
+    digitalWrite(updateLedPin, LOW);
+  }
+  searchForOneWireSensors();
+}
+
+void updateHumiditySensors() {
+  for (int x = 0; x < arraySize(humiditySensors); x++) {
+    HumidityDevice humiditySensor = humiditySensors[x];
+    humiditySensor.humidity = humiditySensor.readHumidity();
+    humiditySensor.temperature = humiditySensor.readTemperature(true);
+    humiditySensor.updated = true;
+    humiditySensors[x] = humiditySensor;
+  }
+}
+
+void loop() {
+  if (nextTemperatureUpload < millis() || abs(nextTemperatureUpload - millis()) > 86400000) {
+    uploadTemperatures();
+    nextTemperatureUpload = millis() + (updateInterval * 60000);
+    currentInterval += updateInterval;
+    if (currentInterval > 60) {
+      currentInterval = updateInterval;
+    }
+  }
+
+  if (nextTemperatureCheck < millis() || abs(nextTemperatureUpload - millis()) > 86400000) {
+    oneWire.reset_search();
+    delay(300);
+    runOneWire();
+    checkTemperatures();
+    updateHumiditySensors();
+    if (updateLedPin != 666222) {
+      digitalWrite(updateLedPin, HIGH);
+      delay(150);
+      digitalWrite(updateLedPin, LOW);
+      delay(150);
+      digitalWrite(updateLedPin, HIGH);
+      delay(150);
+      digitalWrite(updateLedPin, LOW);
+    }
+  }
+}

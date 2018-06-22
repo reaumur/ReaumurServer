@@ -1,0 +1,92 @@
+#set("title") { Notification }
+#set("main") {
+    <ol class="breadcrumb">
+        <li class="breadcrumb-item"><a href="/logs">Notifications</a></li>
+        <li class="breadcrumb-item active">Notification</li>
+    </ol>
+    <div class="container">
+        <div class="row">
+            <div class="col-lg-12">
+                <div class="card">
+                    <form class="form-signin" action="/notifications/#(objectId)" method="post">
+                        <div class="card-header">
+                            <i class="fa fa-align-justify"></i> Notification
+                        </div>
+                        <div class="card-block">
+                            <div class="form-group">
+                                <label class="form-control-label" for="prependedInput">Type</label>
+                                <div class="controls">
+                                    <div class="input-prepend input-group">
+                                        <input type="text" spellcheck="false" class="form-control" placeholder="Type" value="#(type)" readonly>
+                                    </div>
+                                </div>
+                            </div>
+                            #if(hostDevice) {
+                                <div class="form-group">
+                                    <label class="form-control-label" for="prependedInput">Host Device</label>
+                                    <div class="controls">
+                                        <div class="input-prepend input-group">
+                                            <input type="text" spellcheck="false" class="form-control" placeholder="Host Device" value="#(hostDevice)" readonly>
+                                        </div>
+                                    </div>
+                                </div>
+                            }
+                            #if(container) {
+                                <div class="form-group">
+                                    <label class="form-control-label" for="prependedInput">Container</label>
+                                    <div class="controls">
+                                        <div class="input-prepend input-group">
+                                            <input type="text" spellcheck="false" class="form-control" placeholder="Container" value="#(container)" readonly>
+                                        </div>
+                                    </div>
+                                </div>
+                            }
+                            #if(device) {
+                                <div class="form-group">
+                                    <label class="form-control-label" for="prependedInput">Device</label>
+                                    <div class="controls">
+                                        <div class="input-prepend input-group">
+                                            <input type="text" spellcheck="false" class="form-control" placeholder="Device" value="#(device)" readonly>
+                                        </div>
+                                    </div>
+                                </div>
+                            }
+                            <div class="form-group">
+                                <label class="form-control-label" for="prependedInput">Created At</label>
+                                <div class="controls">
+                                    <div class="input-prepend input-group">
+                                        <input type="text" spellcheck="false" class="form-control" placeholder="Created At" value="#(createdAt)" readonly>
+                                    </div>
+                                </div>
+                            </div>
+                            #if(temperature) {
+                                <div class="form-group">
+                                    <label class="form-control-label" for="prependedInput">Temperature</label>
+                                    <div class="controls">
+                                        <div class="input-prepend input-group">
+                                            <input type="text" spellcheck="false" class="form-control" placeholder="Temperature" value="#(temperature)" readonly>
+                                        </div>
+                                    </div>
+                                </div>
+                            }
+                            #if(humidity) {
+                                <div class="form-group">
+                                    <label class="form-control-label" for="prependedInput">Humidity</label>
+                                    <div class="controls">
+                                        <div class="input-prepend input-group">
+                                            <input type="text" spellcheck="false" class="form-control" placeholder="Humidity" value="#(humidity)" readonly>
+                                        </div>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                        <!-- <div class="card-footer">
+                            <button type="submit" class="btn btn-sm btn-danger" name="action" value="delete" onclick="return confirm('Are you sure you want to delete this notification?')"><i class="fa fa-ban"></i> Delete</button>
+                        </div> -->
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+#embed("base")

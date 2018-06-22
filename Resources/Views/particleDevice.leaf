@@ -1,0 +1,125 @@
+#set("title") { Particle Device }
+#set("main") {
+    <ol class="breadcrumb">
+        <li class="breadcrumb-item"><a href="/hostDevices">Particle Devices</a></li>
+        <li class="breadcrumb-item active">Particle Device</li>
+    </ol>
+    <div class="container">
+        <div class="row">
+            <div class="col-lg-12">
+                <div class="card">
+                    <form class="form-signin" action="/particle/devices/#(deviceId)" method="post">
+                        <div class="card-header">
+                            <i class="fa fa-align-justify"></i> Update Particle Device
+                        </div>
+                        <div class="card-block">
+                            <div class="form-group">
+                                <label class="form-control-label" for="prependedInput">Name</label>
+                                <div class="controls">
+                                    <div class="input-prepend input-group">
+                                        <input type="text" spellcheck="false" class="form-control" placeholder="Name" name="name" value="#(name)" required>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-control-label" for="prependedInput">Device ID</label>
+                                <div class="controls">
+                                    <div class="input-prepend input-group">
+                                        <input type="text" spellcheck="false" class="form-control" placeholder="None" value="#(deviceId)" readonly>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-control-label" for="prependedInput">Default Build Target</label>
+                                <div class="controls">
+                                    <div class="input-prepend input-group">
+                                        <input type="text" spellcheck="false" class="form-control" placeholder="Unkown" value="#(defaultBuildTarget)" readonly>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-control-label" for="prependedInput">System Firmware Version</label>
+                                <div class="controls">
+                                    <div class="input-prepend input-group">
+                                        <input type="text" spellcheck="false" class="form-control" placeholder="Unkown" value="#(systemFirmwareVersion)" readonly>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-control-label" for="prependedInput">Current Build Target</label>
+                                <div class="controls">
+                                    <div class="input-prepend input-group">
+                                        <input type="text" spellcheck="false" class="form-control" placeholder="Unkown" value="#(currentBuildTarget)" readonly>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-control-label" for="prependedInput">Last IP Address</label>
+                                <div class="controls">
+                                    <div class="input-prepend input-group">
+                                        <input type="text" spellcheck="false" class="form-control" placeholder="Unkown" value="#(lastIpAddress)" readonly>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-control-label" for="prependedInput">Last Heard</label>
+                                <div class="controls">
+                                    <div class="input-prepend input-group">
+                                        <input type="text" spellcheck="false" class="form-control" placeholder="Unkown" value="#(lastHeard)" readonly>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-control-label" for="prependedInput">Status</label>
+                                <div class="controls">
+                                    <div class="input-prepend input-group">
+                                        <input type="text" spellcheck="false" class="form-control" placeholder="Unkown" value="#(status)" readonly>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-control-label" for="prependedInput">Celluar</label>
+                                <div class="controls">
+                                    <div class="input-prepend input-group">
+                                        <span class="badge badge-dark">#(cellular)</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-control-label" for="prependedInput">ICCID</label>
+                                <div class="controls">
+                                    <div class="input-prepend input-group">
+                                        <input type="text" spellcheck="false" class="form-control" placeholder="None" value="#(iccid)" readonly>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-control-label" for="prependedInput">IMEI</label>
+                                <div class="controls">
+                                    <div class="input-prepend input-group">
+                                        <input type="text" spellcheck="false" class="form-control" placeholder="None" value="#(imei)" readonly>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-control-label" for="prependedInput">Connected</label>
+                                <div class="controls">
+                                    <div class="input-prepend input-group">
+                                        #get(connected)
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="card-footer">
+                            <button type="submit" class="btn btn-sm btn-primary" name="action" value="send"><i class="fa fa-dot-circle-o"></i> Submit</button>
+                            #if(canRegister) {
+                                <button type="submit" class="btn btn-sm btn-danger" name="action" value="register"><i class="fa fa-ban"></i> Register</button>
+                            }
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+#embed("base")
