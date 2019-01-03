@@ -131,14 +131,15 @@ struct DeviceRouter {
                     containerData.append(string)
                 }
                 
-                let hostDeviceId = try device.extractObjectId("hostDeviceId")
-                guard let hostDevice = try HostDevice.collection.findOne("_id" == hostDeviceId, projecting: [
+                let hostDeviceName: String
+                if let hostDeviceId = device["hostDeviceId"] as? ObjectId, let hostDevice = try? HostDevice.collection.findOne("_id" == hostDeviceId, projecting: [
                     "_id",
                     "name"
-                ]) else {
-                    throw ServerAbort(.notFound, reason: "Host Device not found")
+                ]), let hostDeviceNameString = hostDevice?["name"] as? String {
+                    hostDeviceName = hostDeviceNameString
+                } else {
+                    hostDeviceName = "None"
                 }
-                let hostDeviceName = try hostDevice.extractString("name")
                 
                 let typeValue = try device.extractInteger("type")
                 guard let type = Device.DeviceType(rawValue: typeValue) else {
@@ -174,6 +175,9 @@ struct DeviceRouter {
                 
                 let notifications = try device.extract("notifications") as Bool
                 data[(notifications ? "notificationsEnabled" : "notificationsDisabled")] = .string("checked")
+                
+                let homeKitHidden = device["homeKitHidden"] as? Bool ?? false
+                data[(homeKitHidden ? "homeKitHiddenEnabled" : "homeKitHiddenDisabled")] = .string("checked")
                 
                 if let lastTemperature = device["lastTemperature"]?.doubleValue {
                     data["lastTemperature"] = .string("<span class=\"badge badge-dark\">\((Double.temperatureFromDouble(lastTemperature)))</span>")
@@ -265,6 +269,7 @@ struct DeviceRouter {
                 var action: String?
                 var name: String?
                 var notifications: Bool?
+                var homeKitHidden: Bool?
                 var hostPin: Device.HostDevicePin?
                 var cycleTimeLimit: Int?
                 var activeLow: Bool?
@@ -280,6 +285,7 @@ struct DeviceRouter {
                     action = try? container.decode(String.self, forKey: .action)
                     name = try? container.decode(String.self, forKey: .name)
                     notifications = try? container.decode(Bool.self, forKey: .notifications)
+                    homeKitHidden = try? container.decode(Bool.self, forKey: .homeKitHidden)
                     hostPin = try? container.decode(Device.HostDevicePin.self, forKey: .hostPin)
                     cycleTimeLimit = try? container.decode(Int.self, forKey: .cycleTimeLimit)
                     activeLow = try? container.decode(Bool.self, forKey: .activeLow)
@@ -296,7 +302,10 @@ struct DeviceRouter {
                 "_id",
                 "hostDeviceId",
                 "type",
-                "containerId"
+                "containerId",
+                "lastTemperature",
+                "offline",
+                "name"
             ]) else {
                 throw ServerAbort(.notFound, reason: "Device not found")
             }
@@ -325,7 +334,6 @@ struct DeviceRouter {
             } else if formData.action == "forceOff", type.isSwitchDevice {
                 try HostDevice.publishEvent(request: request, eventName: "updateForceMode", data: "\(deviceId.hexString),2", redirect: "/devices/\(deviceId.hexString)", promise: promise)
             }
-            let hostDeviceId = try device.extractObjectId("hostDeviceId")
             var update: Document = [:]
             var hostDeviceNeedsUpdate = false
             if let name = formData.name {
@@ -333,6 +341,14 @@ struct DeviceRouter {
             }
             if let notifications = formData.notifications {
                 update["notifications"] = notifications
+            }
+            if let homeKitHidden = formData.homeKitHidden {
+                update["homeKitHidden"] = homeKitHidden
+                if homeKitHidden {
+                    HomeKitProvider.shared.removeDevice(forId: deviceId)
+                } else {
+                    try? HomeKitProvider.shared.upsert(device: device)
+                }
             }
             if let hostPin = formData.hostPin {
                 update["hostPin"] = hostPin.rawValue
@@ -413,7 +429,7 @@ struct DeviceRouter {
             if unset.count > 0 {
                 query["$unset"] = unset
             }
-            if hostDeviceNeedsUpdate {
+            if hostDeviceNeedsUpdate, let hostDeviceId = device["hostDeviceId"] as? ObjectId {
                 _ = try HostDevice.collection.findAndUpdate("_id" == hostDeviceId, with: ["$set": ["needsUpdate": true]], upserting: false, returnedDocument: .new)
             }
             let document = try Device.collection.findAndUpdate("_id" == deviceId, with: query, upserting: false, returnedDocument: .new)
@@ -595,11 +611,18 @@ struct DeviceRouter {
                         guard try BrewContainer.collection.update("_id" == containerId, to: container) != 0 else {
                             throw ServerAbort(.notFound, reason: "Could not update container")
                         }
+                        if let containerAccessory = HomeKitProvider.shared.container(forId: containerId) {
+                            containerAccessory.update(averageTemperature: averageTemperature)
+                        }
                         SocketProvider.shared.send(socketFrameHolder: ContainerFrame(objectId: containerId, averageTemperature: averageTemperature, averageHumidity: averageHumidity, isHeating: nil, isCooling: nil, fanActive: nil, updatedAt: createdAt, lastActionDate: nil).socketFrameHodler, userId: userId)
                     } else {
                         guard try Device.collection.update("_id" == deviceId, to: device) != 0 else {
                             throw ServerAbort(.notFound, reason: "Could not update device")
                         }
+                    }
+                    if let deviceAccessory = HomeKitProvider.shared.device(forId: deviceId) {
+                        deviceAccessory.update(offline: false)
+                        deviceAccessory.update(averageTemperature: temperature)
                     }
                 } else if let turnedOn = formData.turnedOn {
                     guard type.isSwitchDevice else {

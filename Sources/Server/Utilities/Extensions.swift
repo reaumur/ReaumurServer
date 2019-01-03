@@ -94,6 +94,12 @@ extension EventLoopPromise where T == ServerResponse {
     }
 }
 
+extension HTTP.HTTPHeaders {
+    mutating func replaceOrAddVapor(name: HTTPHeaderName, value: String) {
+        replaceOrAdd(name: name, value: value)
+    }
+}
+
 extension Request {
     func globalAsync(block: @escaping (_: EventLoopPromise<ServerResponse>) throws -> Swift.Void) -> EventLoopFuture<ServerResponse> {
         let promise = eventLoop.newPromise(ServerResponse.self)
@@ -161,7 +167,7 @@ extension Request {
     
     func statusResponse(status: HTTPStatus) -> Response {
         let response = Response(using: sharedContainer)
-        response.http.headers.replaceOrAdd(name: .contentType, value: "application/json")
+        response.http.headers.replaceOrAddVapor(name: .contentType, value: "application/json")
         response.http.status = status
         response.http.body = HTTPBody(string: "{}")
         return response
@@ -169,7 +175,7 @@ extension Request {
     
     func rawJsonResponse(body: HTTPBody) -> Response {
         let response = Response(using: sharedContainer)
-        response.http.headers.replaceOrAdd(name: .contentType, value: "application/json")
+        response.http.headers.replaceOrAddVapor(name: .contentType, value: "application/json")
         response.http.status = .ok
         response.http.body = body
         return response
@@ -179,7 +185,7 @@ extension Request {
     
     func makeJsonResponse<T>(_ jsonObject: T, status: HTTPResponseStatus = .ok) throws -> Response where T : Encodable {
         let response = Response(using: sharedContainer)
-        response.http.headers.replaceOrAdd(name: .contentType, value: "application/json")
+        response.http.headers.replaceOrAddVapor(name: .contentType, value: "application/json")
         response.http.body = try HTTPBody(data: JSONEncoder().encode(jsonObject))
         response.http.status = status
         return response
@@ -187,7 +193,7 @@ extension Request {
     
     func makeJsonResponse(_ data: Data, status: HTTPResponseStatus = .ok) -> Response {
         let response = Response(using: sharedContainer)
-        response.http.headers.replaceOrAdd(name: .contentType, value: "application/json")
+        response.http.headers.replaceOrAddVapor(name: .contentType, value: "application/json")
         response.http.body = HTTPBody(data: data)
         response.http.status = status
         return response
@@ -195,7 +201,7 @@ extension Request {
     
     func jsonEncoded(json: [String: Codable], type: RedirectType = .normal) throws -> Future<ServerResponse> {
         let response = Response(using: sharedContainer)
-        response.http.headers.replaceOrAdd(name: .contentType, value: "application/json")
+        response.http.headers.replaceOrAddVapor(name: .contentType, value: "application/json")
         response.http.status = .ok
         response.http.body = try HTTPBody(data: JSONSerialization.data(withJSONObject: json, options: JSONSerialization.WritingOptions(rawValue: 0)))
         return try response.encode(for: self).map(to: ServerResponse.self) { response in
@@ -307,15 +313,9 @@ extension Bool {
     }
 }
 
-extension Float {
+extension Double {
     var roundedValue: Double {
-        return Double(Double((self * 100.0).rounded()) / Double(100.0))
-    }
-    var roundedFloatValue: Float {
-        return Float(Float((self * 100.0).rounded()) / Float(100.0))
-    }
-    var doubleValue: Double {
-        return Double(self)
+        return Double(String(format: "%.2f", self)) ?? Double(self)
     }
 }
 
@@ -486,7 +486,7 @@ extension Document {
     
     func makeResponse(_ request: Request) throws -> EventLoopFuture<ServerResponse> {
         let response = Response(using: request.sharedContainer)
-        response.http.headers.replaceOrAdd(name: .contentType, value: "application/json; charset=utf-8")
+        response.http.headers.replaceOrAddVapor(name: .contentType, value: "application/json; charset=utf-8")
         response.http.body = HTTPBody(data: self.makeJSON().serialize().convertToData())
         response.http.status = .ok
         return try response.encode(for: request).map(to: ServerResponse.self) { mappedResponse in
@@ -498,7 +498,7 @@ extension Document {
 extension CollectionSlice where Element == Document {
     func makeResponse(_ request: Request) throws -> EventLoopFuture<ServerResponse> {
         let response = Response(using: request.sharedContainer)
-        response.http.headers.replaceOrAdd(name: .contentType, value: "application/json; charset=utf-8")
+        response.http.headers.replaceOrAddVapor(name: .contentType, value: "application/json; charset=utf-8")
         response.http.body = HTTPBody(data: self.makeDocument().makeJSON().serialize().convertToData())
         response.http.status = .ok
         return try response.encode(for: request).map(to: ServerResponse.self) { mappedResponse in

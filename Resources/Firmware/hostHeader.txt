@@ -1,5 +1,6 @@
 #include <inttypes.h>
 #include "application.h"
+#include <string.h>
 #include "spark_wiring_string.h"
 #include "spark_wiring_tcpclient.h"
 #include "spark_wiring_usbserial.h"
@@ -152,11 +153,11 @@ void HttpClient::request(http_request_t &aRequest, http_response_t &aResponse, c
     aResponse.status = atoi(statusCode.c_str());
 }
 
-class OneWire {
+class OneWire
+{
 private:
   uint16_t _pin;
-
-  #if PLATFORM_ID == 0 // Core
+  #if PLATFORM_ID == 0
     inline void digitalWriteFastLow() {
       PIN_MAP[_pin].gpio_peripheral->BRR = PIN_MAP[_pin].gpio_pin;
     }
@@ -211,7 +212,6 @@ private:
     inline uint8_t digitalReadFast() {
       return GPIO_ReadInputDataBit(PIN_MAP[_pin].gpio_peripheral, PIN_MAP[_pin].gpio_pin);
     }
-
   #elif PLATFORM_ID == 6 || PLATFORM_ID == 8 || PLATFORM_ID == 10
     STM32_Pin_Info* PIN_MAP = HAL_Pin_Map();
 
@@ -236,7 +236,26 @@ private:
     }
 
   #else
-    #error "*** PLATFORM_ID not supported by this library. PLATFORM should be Core, Photon, P1 or Electron ***"
+
+    inline void digitalWriteFastLow() {
+      pinResetFast(_pin);
+    }
+
+    inline void digitalWriteFastHigh() {
+      pinSetFast(_pin);
+    }
+
+    inline void pinModeFastOutput(void){
+      HAL_Pin_Mode(_pin, OUTPUT);
+    }
+
+    inline void pinModeFastInput(void){
+      HAL_Pin_Mode(_pin, INPUT);
+    }
+
+    inline uint8_t digitalReadFast(void){
+      return pinReadFast(_pin);
+    }
   #endif
 
     unsigned char ROM_NO[8];
@@ -264,14 +283,17 @@ private:
     static uint16_t crc16(const uint8_t* input, uint16_t len, uint16_t crc = 0);
 };
 
-OneWire::OneWire(uint16_t pin) {
+OneWire::OneWire(uint16_t pin)
+{
     pinMode(pin, INPUT);
     _pin = pin;
 }
 
-uint8_t OneWire::reset(void) {
+uint8_t OneWire::reset(void)
+{
     uint8_t r;
     uint8_t retries = 125;
+
     noInterrupts();
     pinModeFastInput();
     interrupts();
@@ -280,45 +302,60 @@ uint8_t OneWire::reset(void) {
 
         delayMicroseconds(2);
     } while ( !digitalReadFast());
+
     noInterrupts();
+
     digitalWriteFastLow();
     pinModeFastOutput();
     interrupts();
     delayMicroseconds(480);
     noInterrupts();
+
     pinModeFastInput();
     delayMicroseconds(70);
+
     r =! digitalReadFast();
+
     interrupts();
+
     delayMicroseconds(410);
+
     return r;
 }
 
-void OneWire::write_bit(uint8_t v) {
+void OneWire::write_bit(uint8_t v)
+{
     if (v & 1) {
         noInterrupts();
+
         digitalWriteFastLow();
         pinModeFastOutput();
         delayMicroseconds(10);
-        digitalWriteFastHigh();
+
+        pinModeFastInput();
         interrupts();
+
         delayMicroseconds(55);
     } else {
         noInterrupts();
+
         digitalWriteFastLow();
         pinModeFastOutput();
         delayMicroseconds(65);
-        digitalWriteFastHigh();
+
+        pinModeFastInput();
         interrupts();
+
         delayMicroseconds(5);
     }
 }
 
-uint8_t OneWire::read_bit(void) {
+uint8_t OneWire::read_bit(void)
+{
     uint8_t r;
     noInterrupts();
-    pinModeFastOutput();
     digitalWriteFastLow();
+    pinModeFastOutput();
     delayMicroseconds(3);
     pinModeFastInput();
     delayMicroseconds(10);
@@ -328,31 +365,35 @@ uint8_t OneWire::read_bit(void) {
     return r;
 }
 
-void OneWire::write(uint8_t v, uint8_t power) {
+void OneWire::write(uint8_t v, uint8_t power /* = 0 */)
+{
     uint8_t bitMask;
     for (bitMask = 0x01; bitMask; bitMask <<= 1) {
         OneWire::write_bit( (bitMask & v)?1:0);
     }
-    if ( !power) {
+    if (power) {
         noInterrupts();
-        pinModeFastInput();
-        digitalWriteFastLow();
+        digitalWriteFastHigh();
+        pinModeFastOutput();
         interrupts();
     }
 }
 
-void OneWire::write_bytes(const uint8_t *buf, uint16_t count, bool power) {
+void OneWire::write_bytes(const uint8_t *buf, uint16_t count, bool power /* = 0 */)
+{
     for (uint16_t i = 0 ; i < count ; i++)
         write(buf[i]);
-    if (!power) {
+
+    if (power) {
         noInterrupts();
-        pinModeFastInput();
-        digitalWriteFastLow();
+        digitalWriteFastHigh();
+        pinModeFastOutput();
         interrupts();
     }
 }
 
-uint8_t OneWire::read() {
+uint8_t OneWire::read()
+{
     uint8_t bitMask;
     uint8_t r = 0;
     for (bitMask = 0x01; bitMask; bitMask <<= 1) {
@@ -361,47 +402,57 @@ uint8_t OneWire::read() {
     return r;
 }
 
-void OneWire::read_bytes(uint8_t *buf, uint16_t count) {
+void OneWire::read_bytes(uint8_t *buf, uint16_t count)
+{
     for (uint16_t i = 0 ; i < count ; i++)
         buf[i] = read();
 }
 
-void OneWire::select(const uint8_t rom[8]) {
+void OneWire::select(const uint8_t rom[8])
+{
     uint8_t i;
     write(0x55);
     for (i = 0; i < 8; i++) write(rom[i]);
 }
 
-void OneWire::skip() {
+void OneWire::skip()
+{
     write(0xCC);
 }
 
-void OneWire::depower() {
+void OneWire::depower()
+{
     noInterrupts();
     pinModeFastInput();
     interrupts();
 }
 
-void OneWire::reset_search() {
+void OneWire::reset_search()
+{
     LastDiscrepancy = 0;
     LastDeviceFlag = FALSE;
     LastFamilyDiscrepancy = 0;
-    for(int i = 7; ; i--) {
+
+    for (int i = 7; ; i--) {
         ROM_NO[i] = 0;
         if ( i == 0) break;
     }
 }
 
-void OneWire::target_search(uint8_t family_code) {
+void OneWire::target_search(uint8_t family_code)
+{
    ROM_NO[0] = family_code;
+
    for (uint8_t i = 1; i < 8; i++)
       ROM_NO[i] = 0;
+
    LastDiscrepancy = 64;
    LastFamilyDiscrepancy = 0;
    LastDeviceFlag = FALSE;
 }
 
-uint8_t OneWire::search(uint8_t *newAddr){
+uint8_t OneWire::search(uint8_t *newAddr)
+{
     uint8_t id_bit_number;
     uint8_t last_zero, rom_byte_number, search_result;
     uint8_t id_bit, cmp_id_bit;
@@ -411,7 +462,8 @@ uint8_t OneWire::search(uint8_t *newAddr){
     rom_byte_number = 0;
     rom_byte_mask = 1;
     search_result = 0;
-    if (!LastDeviceFlag){
+    if (!LastDeviceFlag)
+    {
         if (!reset()){
             LastDiscrepancy = 0;
             LastDeviceFlag = FALSE;
@@ -420,13 +472,15 @@ uint8_t OneWire::search(uint8_t *newAddr){
             return FALSE;
         }
         write(0xF0);
-        do{
+        do
+        {
             id_bit = read_bit();
             cmp_id_bit = read_bit();
             if ((id_bit == 1) && (cmp_id_bit == 1)){
                 break;
             }
-            else{
+            else
+            {
                 if (id_bit != cmp_id_bit){
                     search_direction = id_bit;
                 }
@@ -435,44 +489,58 @@ uint8_t OneWire::search(uint8_t *newAddr){
                         search_direction = ((ROM_NO[rom_byte_number] & rom_byte_mask) > 0);
                     else
                         search_direction = (id_bit_number == LastDiscrepancy);
+
                     if (search_direction == 0){
                         last_zero = id_bit_number;
                         if (last_zero < 9)
                             LastFamilyDiscrepancy = last_zero;
                     }
                 }
+
                 if (search_direction == 1)
                   ROM_NO[rom_byte_number] |= rom_byte_mask;
                 else
                   ROM_NO[rom_byte_number] &= ~rom_byte_mask;
+
                 write_bit(search_direction);
+
                 id_bit_number++;
                 rom_byte_mask <<= 1;
-                if (rom_byte_mask == 0){
+
+                if (rom_byte_mask == 0)
+                {
                     rom_byte_number++;
                     rom_byte_mask = 1;
                 }
             }
         }while(rom_byte_number < 8);
-        if (!(id_bit_number < 65)){
+
+        if (!(id_bit_number < 65))
+        {
             LastDiscrepancy = last_zero;
             if (LastDiscrepancy == 0)
                 LastDeviceFlag = TRUE;
+
             search_result = TRUE;
         }
     }
+
     if (!search_result || !ROM_NO[0]){
         LastDiscrepancy = 0;
         LastDeviceFlag = FALSE;
         LastFamilyDiscrepancy = 0;
         search_result = FALSE;
     }
+
     for (int i = 0; i < 8; i++) newAddr[i] = ROM_NO[i];
+
     return search_result;
 }
 
-uint8_t OneWire::crc8( uint8_t *addr, uint8_t len) {
+uint8_t OneWire::crc8( uint8_t *addr, uint8_t len)
+{
     uint8_t crc = 0;
+
     while (len--) {
         uint8_t inbyte = *addr++;
         for (uint8_t i = 8; i; i--) {
@@ -482,29 +550,219 @@ uint8_t OneWire::crc8( uint8_t *addr, uint8_t len) {
                 inbyte >>= 1;
         }
     }
+
     return crc;
 }
 
-bool OneWire::check_crc16(const uint8_t* input, uint16_t len, const uint8_t* inverted_crc, uint16_t crc) {
+bool OneWire::check_crc16(const uint8_t* input, uint16_t len, const uint8_t* inverted_crc, uint16_t crc)
+{
     crc = ~crc16(input, len, crc);
+
     return (crc & 0xFF) == inverted_crc[0] && (crc >> 8) == inverted_crc[1];
 }
 
-uint16_t OneWire::crc16(const uint8_t* input, uint16_t len, uint16_t crc) {
+uint16_t OneWire::crc16(const uint8_t* input, uint16_t len, uint16_t crc)
+{
     static const uint8_t oddparity[16] =
         { 0, 1, 1, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 1, 1, 0 };
+
     for (uint16_t i = 0 ; i < len ; i++) {
         uint16_t cdata = input[i];
         cdata = (cdata ^ crc) & 0xff;
         crc >>= 8;
+
         if (oddparity[cdata & 0x0F] ^ oddparity[cdata >> 4])
             crc ^= 0xC001;
+
         cdata <<= 6;
         crc ^= cdata;
         cdata <<= 1;
         crc ^= cdata;
     }
+
     return crc;
+}
+
+enum DS18Type {
+  WIRE_UNKNOWN,
+  WIRE_DS1820,
+  WIRE_DS18B20,
+  WIRE_DS1822,
+  WIRE_DS2438
+};
+
+class DS18 {
+public:
+  DS18(uint16_t pin, bool parasitic = false);
+
+  bool read();
+  bool read(uint8_t addr[8]);
+  int16_t raw();
+  float celsius();
+  float fahrenheit();
+  void addr(uint8_t dest[8]);
+  void data(uint8_t dest[9]);
+  DS18Type type();
+
+  bool searchDone();
+  bool crcError();
+
+  void setConversionTime(uint16_t ms);
+
+private:
+  void init();
+
+  OneWire _wire;
+  bool _parasitic;
+  uint16_t _conversionTime;
+  int16_t _raw;
+  float _celsius;
+  uint8_t _addr[8];
+  uint8_t _data[9];
+  DS18Type _type;
+  bool _searchDone;
+  bool _crcError;
+};
+
+DS18::DS18(uint16_t pin, bool parasitic)
+  :
+  _wire{pin},
+  _parasitic{parasitic},
+  _conversionTime{1000}
+{
+  init();
+}
+
+void DS18::init() {
+  _raw = 0;
+  _celsius = 0;
+  memset(_addr, 0, sizeof(_addr));
+  memset(_data, 0, sizeof(_data));
+  _type = WIRE_UNKNOWN;
+  _searchDone = false;
+  _crcError = false;
+}
+
+bool DS18::read() {
+  init();
+
+  if (!_wire.search(_addr)) {
+    _searchDone = true;
+    _wire.reset_search();
+    return false;
+  }
+
+  if (OneWire::crc8(_addr, 7) != _addr[7]) {
+    _crcError = true;
+    return false;
+  }
+  return read(_addr);
+}
+
+bool DS18::read(uint8_t addr[8]) {
+  memcpy(_addr, addr, sizeof(_addr));
+
+  switch (addr[0]) {
+    case 0x10: _type = WIRE_DS1820; break;
+    case 0x28: _type = WIRE_DS18B20; break;
+    case 0x22: _type = WIRE_DS1822; break;
+    case 0x26: _type = WIRE_DS2438; break;
+    default:   _type = WIRE_UNKNOWN; return false;
+  }
+
+  _wire.reset();
+  _wire.select(_addr);
+  int power = _parasitic ? 1 : 0;
+  _wire.write(0x44, power);
+
+  delay(_conversionTime);
+  _wire.reset();
+  _wire.select(_addr);
+  _wire.write(0xB8,0);
+  _wire.write(0x00,0);
+
+  _wire.reset();
+  _wire.select(_addr);
+  _wire.write(0xBE,0);
+  if (_type == WIRE_DS2438) {
+    _wire.write(0x00,0);
+  }
+  for (unsigned i = 0; i < sizeof(_data); i++) {
+    _data[i] = _wire.read();
+  }
+
+  if (OneWire::crc8(_data, 8) != _data[8]) {
+    _crcError = true;
+    return false;
+  }
+
+  _raw = (_data[1] << 8) | _data[0];
+  if (_type == WIRE_DS2438) {
+    _raw = (_data[2] << 8) | _data[1];
+  }
+  byte cfg = (_data[4] & 0x60);
+
+  switch (_type) {
+    case WIRE_DS1820:
+      _raw = _raw << 3;
+      if (_data[7] == 0x10) {
+        _raw = (_raw & 0xFFF0) + 12 - _data[6];
+      }
+      _celsius = (float)_raw * 0.0625;
+      break;
+    case WIRE_DS18B20:
+    case WIRE_DS1822:
+      if (cfg == 0x00) _raw = _raw & ~7;
+      if (cfg == 0x20) _raw = _raw & ~3;
+      if (cfg == 0x40) _raw = _raw & ~1;
+      _celsius = (float)_raw * 0.0625;
+      break;
+
+    case WIRE_DS2438:
+      _data[1] = (_data[1] >> 3) & 0x1f;
+      if (_data[2] > 127) {
+        _celsius = (float)_data[2] - ((float)_data[1] * .03125);
+      } else {
+        _celsius = (float)_data[2] + ((float)_data[1] * .03125);
+      }
+  }
+  return true;
+}
+
+int16_t DS18::raw() {
+  return _raw;
+}
+
+float DS18::celsius() {
+  return _celsius;
+}
+
+float DS18::fahrenheit() {
+  return _celsius * 1.8 + 32.0;
+}
+
+void DS18::addr(uint8_t dest[8]) {
+  memcpy(dest, _addr, sizeof(_addr));
+}
+
+void DS18::data(uint8_t data[9]) {
+  memcpy(data, _data, sizeof(_data));
+}
+
+DS18Type DS18::type() {
+  return _type;
+}
+
+bool DS18::searchDone() {
+  return _searchDone;
+}
+
+bool DS18::crcError() {
+  return _crcError;
+}
+
+void DS18::setConversionTime(uint16_t ms) {
+  _conversionTime = ms;
 }
 
 class SwitchDevice {

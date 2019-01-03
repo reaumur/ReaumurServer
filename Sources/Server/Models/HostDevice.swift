@@ -29,7 +29,9 @@ struct HostDevice {
         /// A Partile Electron device.
         particleElectron = 3,
         /// A Partile P1 device.
-        particleP1 = 4
+        particleP1 = 4,
+        /// A Partile P1 device.
+        particleArgon = 5
         
         init?(platformId: Int) {
             switch platformId {
@@ -37,6 +39,7 @@ struct HostDevice {
             case 6: self = .particlePhoton
             case 8: self = .particleP1
             case 10: self = .particleElectron
+            case 12: self = .particleArgon
             default: return nil
             }
         }
@@ -49,6 +52,7 @@ struct HostDevice {
             case .particlePhoton: return "Particle Photon"
             case .particleElectron: return "Particle Electron"
             case .particleP1: return "Particle P1"
+            case .particleArgon: return "Particle Argon"
             }
         }
     }
@@ -56,6 +60,10 @@ struct HostDevice {
     static func sourceCode(_ hostDevice: Document, sharedContainer: Container) throws -> String {
         let hostDeviceId = try hostDevice.extractObjectId()
         let userId = try hostDevice.extractObjectId("userId")
+        let typeValue = try hostDevice.extractInteger("type")
+        guard let type = HostDevice.ParticleDeviceType(rawValue: typeValue) else {
+            throw ServerAbort(.notFound, reason: "type is required")
+        }
         
         var sourceCode = "\n\n\n"
         
@@ -230,7 +238,8 @@ struct HostDevice {
             sourceCode += heatingSwitchSourceCode + "\n};\n\n"
         }
         
-        sourceCode += "unsigned int nextTemperatureUpload = 0;\nunsigned int nextTemperatureCheck = 0;\nint oneWireCount = 0;\nint currentInterval = 5;\nboolean registerOneWire = false;\nboolean sendDeviceStatus = false;\nHttpClient http;\nOneWire oneWire = OneWire(D0);\n\nvoid setup() {\n"
+        let oneWirePin = "D0"
+        sourceCode += "unsigned int nextTemperatureUpload = 0;\nunsigned int nextTemperatureCheck = 0;\nint oneWireCount = 0;\nint currentInterval = 5;\nboolean registerOneWire = false;\nboolean sendDeviceStatus = false;\nHttpClient http;\nOneWire oneWire = OneWire(\(oneWirePin));\n\nvoid setup() {\n"
         
         sourceCode += pinModeSourceCode
         sourceCode += digitalWriteSourceCode

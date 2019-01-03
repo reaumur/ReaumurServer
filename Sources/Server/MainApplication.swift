@@ -38,6 +38,7 @@ public final class MainApplication {
             try services.register(MongoProvider.shared)
             try services.register(InfluxdbProiver())
             try services.register(PushProvider())
+            try services.register(HomeKitProvider.shared)
             
             services.register(MainApplication.routes(), as: Router.self)
             services.registerMiddlewares()
@@ -56,7 +57,7 @@ public final class MainApplication {
                 services: services
             )
         } catch {
-            print(error)
+            Logger.error("Start Error: \(error)")
             exit(1)
         }
     }

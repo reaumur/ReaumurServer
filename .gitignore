@@ -8,3 +8,4 @@ DerivedData/
 Config/secrets/
 Package.resolved
 Database/
+HomeKitConfiguration.json

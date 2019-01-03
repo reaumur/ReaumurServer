@@ -1,4 +1,10 @@
 #set("title") { Admin }
+#set("scripts") {
+    <script type="text/javascript" src="/vendors/js/qrcode.js"></script>
+    <script>
+        jQuery('#code').qrcode("#(homeKitSetupUri)");
+    </script>
+}
 #set("main") {
     <ol class="breadcrumb">
         <li class="breadcrumb-item active">Settings</li>
@@ -204,5 +210,24 @@
             </div>
         </form>
     </div>
+    #if(homeKitSetupCode) {
+      <div class="card">
+          <div class="card-header">
+              <i class="fa fa-align-justify"></i> HomeKit
+          </div>
+          <div class="card-block">
+              <div class="container">
+                  <div id="code" class="row justify-content-md-center mb-4">
+                  </div>
+                  <div class="row-12">
+                      <div class="alert alert-warning" role="alert">
+                          <h4 class="alert-heading">HomeKit Setup Code</h4>
+                          <p><strong>#(homeKitSetupCode)</strong></p>
+                      </div>
+                  </div>
+              </div>
+          </div>
+      </div>
+    }
 }
 #embed("base")

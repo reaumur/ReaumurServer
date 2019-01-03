@@ -176,7 +176,7 @@ struct Device {
         /// GNDA Pin
         case gnda = 24
         
-        static var availablePins: Set<HostDevicePin> {
+        static func availablePins(particleDeviceType: HostDevice.ParticleDeviceType) -> Set<HostDevicePin> {
             return [.d1, .d2, .d3, .d4, .d5, .d6, .d7, .a0, .a1, .a2, .a3, .a4, .a5]
         }
         
@@ -378,12 +378,15 @@ struct Device {
             }
             let offlineDate = Date(timeIntervalSinceNow: -(Double(Admin.settings.offlineMinutes) * 60))
             for device in devices {
-                guard let objectId = device.objectId, let typeInt = device["type"] as? Int, let type = Device.DeviceType(rawValue: typeInt), type.isTemperatureSensorDevice, (device["offline"] as? Bool ?? false) == false, let updatedAt = device["updatedAt"] as? Date, updatedAt < offlineDate else { continue }
-                try Device.collection.update("_id" == objectId, to: ["$set": ["offline": true]], upserting: false, multiple: false)
-                if let hostDeviceId = try? device.extractObjectId("hostDeviceId"), let userId = hostDeviceUserIds[hostDeviceId] {
-                    SocketProvider.shared.send(socketFrameHolder: DeviceFrame(objectId: objectId, turnedOn: nil, lastTemperature: nil, lastHumidity: nil, lastActionDate: nil, updatedAt: nil, offline: true, assigned: nil, outsideTemperature: nil).socketFrameHodler, userId: userId)
+                guard let deviceId = device.objectId, let typeInt = device["type"] as? Int, let type = Device.DeviceType(rawValue: typeInt), type.isTemperatureSensorDevice, (device["offline"] as? Bool ?? false) == false, let updatedAt = device["updatedAt"] as? Date, updatedAt < offlineDate else { continue }
+                if let deviceAccessory = HomeKitProvider.shared.device(forId: deviceId) {
+                    deviceAccessory.update(offline: true)
                 }
-                Notification.send(userId: objectId, device: device, kind: .offline, date: updatedAt)
+                try Device.collection.update("_id" == deviceId, to: ["$set": ["offline": true]], upserting: false, multiple: false)
+                if let hostDeviceId = try? device.extractObjectId("hostDeviceId"), let userId = hostDeviceUserIds[hostDeviceId] {
+                    SocketProvider.shared.send(socketFrameHolder: DeviceFrame(objectId: deviceId, turnedOn: nil, lastTemperature: nil, lastHumidity: nil, lastActionDate: nil, updatedAt: nil, offline: true, assigned: nil, outsideTemperature: nil).socketFrameHodler, userId: userId)
+                }
+                Notification.send(userId: deviceId, device: device, kind: .offline, date: updatedAt)
             }
             let hostDevices = try HostDevice.collection.find(projecting: [
                 "_id", "name", "offline", "pingedAt", "userId"

@@ -12,16 +12,16 @@ import MongoKitten
 extension HTTPHeaders {
     public var bearerAuthorization: String? {
         get {
-            guard let string = self[.authorization].first else { return nil }
+            guard let string = self[HTTP.HTTPHeaderName.authorization].first else { return nil }
             guard let range = string.range(of: "Bearer ") else { return nil }
             let token = string[range.upperBound...]
             return String(token)
         }
         set {
             if let bearer = newValue {
-                replaceOrAdd(name: .authorization, value: "Bearer \(bearer)")
+                replaceOrAdd(name: HTTP.HTTPHeaderName.authorization, value: "Bearer \(bearer)")
             } else {
-                remove(name: .authorization)
+                remove(name: HTTP.HTTPHeaderName.authorization)
             }
         }
     }

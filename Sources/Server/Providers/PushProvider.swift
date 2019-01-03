@@ -117,7 +117,7 @@ final class PushProvider: Vapor.Provider {
                     var color: String?
                     var author_name: String?
                     var title: String?
-                    var footer: String = "Reaumur"
+                    var footer: String = Constants.name
                     var ts: Double?
                     var author_link: String?
                     var title_link: String?

@@ -62,7 +62,7 @@ final class MongoProvider: Provider {
 //            }
             database = server[databaseName]
         } catch let error {
-            print(error)
+            Logger.error("Mongo Provider Start Error: \(error)")
             exit(1)
         }
     }

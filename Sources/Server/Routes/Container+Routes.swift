@@ -146,6 +146,9 @@ struct BrewContainerRouter {
                 let updatedAt = (try? container.extractDate("updatedAt"))?.longString ?? "Never"
                 let lastActionDate = (try? container.extractDate("lastActionDate"))?.longString ?? "Never"
                 
+                let homeKitHidden = container["homeKitHidden"] as? Bool ?? false
+                data[(homeKitHidden ? "homeKitHiddenEnabled" : "homeKitHiddenDisabled")] = .string("checked")
+                
                 let conflictActionValue = try container.extractInteger("conflictAction")
                 guard let conflictAction = BrewContainer.ConflictActionType(rawValue: conflictActionValue) else {
                     throw ServerAbort(.notFound, reason: "type is required")
@@ -226,7 +229,8 @@ struct BrewContainerRouter {
                 "containsSensors": false,
                 "isHeating": false,
                 "isCooling": false,
-                "fanActive": false
+                "fanActive": false,
+                "homeKitHidden": false
             ]
             
             guard let containerId = try BrewContainer.collection.insert(container) as? ObjectId else {
@@ -278,6 +282,7 @@ struct BrewContainerRouter {
             }
         }
         
+        HomeKitProvider.shared.removeContainer(forId: containerId)
         guard try BrewContainer.collection.remove("_id" == containerId) == 1 else {
             throw ServerAbort(.notFound, reason: "Could not delete container")
         }
@@ -347,49 +352,51 @@ struct BrewContainerRouter {
     struct TemperatureData: Codable {
         var action: String?
         var name: String?
+        var homeKitHidden: Bool?
         var conflictAction: Int?
-        var minTemperature: Float?
-        var turnOnBelowHeatTemperature: Float?
-        var turnOnBelowHeatTemperatureValue: Float?
-        var wantedHeatTemperature: Float?
-        var turnOffAboveHeatTemperature: Float?
-        var turnOffAboveHeatTemperatureValue: Float?
-        var turnOffBelowCoolTemperature: Float?
-        var turnOffBelowCoolTemperatureValue: Float?
-        var wantedCoolTemperature: Float?
-        var turnOnAboveCoolTemperature: Float?
-        var turnOnAboveCoolTemperatureValue: Float?
-        var maxTemperature: Float?
+        var minTemperature: Double?
+        var turnOnBelowHeatTemperature: Double?
+        var turnOnBelowHeatTemperatureValue: Double?
+        var wantedHeatTemperature: Double?
+        var turnOffAboveHeatTemperature: Double?
+        var turnOffAboveHeatTemperatureValue: Double?
+        var turnOffBelowCoolTemperature: Double?
+        var turnOffBelowCoolTemperatureValue: Double?
+        var wantedCoolTemperature: Double?
+        var turnOnAboveCoolTemperature: Double?
+        var turnOnAboveCoolTemperatureValue: Double?
+        var maxTemperature: Double?
         
         init(from decoder: Decoder) throws {
             let container = try decoder.container(keyedBy: TemperatureData.CodingKeys.self)
             action = try? container.decode(String.self, forKey: .action)
             name = try? container.decode(String.self, forKey: .name)
+            homeKitHidden = try? container.decode(Bool.self, forKey: .homeKitHidden)
             conflictAction = try? container.decode(Int.self, forKey: .conflictAction)
-            minTemperature = (try? container.decode(Float.self, forKey: .minTemperature))?.roundedFloatValue
-            turnOnBelowHeatTemperature = (try? container.decode(Float.self, forKey: .turnOnBelowHeatTemperature))?.roundedFloatValue
-            wantedHeatTemperature = (try? container.decode(Float.self, forKey: .wantedHeatTemperature))?.roundedFloatValue
-            turnOffAboveHeatTemperature = (try? container.decode(Float.self, forKey: .turnOffAboveHeatTemperature))?.roundedFloatValue
+            minTemperature = (try? container.decode(Double.self, forKey: .minTemperature))?.roundedValue
+            turnOnBelowHeatTemperature = (try? container.decode(Double.self, forKey: .turnOnBelowHeatTemperature))?.roundedValue
+            wantedHeatTemperature = (try? container.decode(Double.self, forKey: .wantedHeatTemperature))?.roundedValue
+            turnOffAboveHeatTemperature = (try? container.decode(Double.self, forKey: .turnOffAboveHeatTemperature))?.roundedValue
             if let wantedHeatTemperature = wantedHeatTemperature {
-                if let turnOnBelowHeatTemperatureValue = (try? container.decode(Float.self, forKey: .turnOnBelowHeatTemperatureValue))?.roundedFloatValue, turnOnBelowHeatTemperatureValue < wantedHeatTemperature {
-                    turnOnBelowHeatTemperature = (wantedHeatTemperature - turnOnBelowHeatTemperatureValue).roundedFloatValue
+                if let turnOnBelowHeatTemperatureValue = (try? container.decode(Double.self, forKey: .turnOnBelowHeatTemperatureValue))?.roundedValue, turnOnBelowHeatTemperatureValue < wantedHeatTemperature {
+                    turnOnBelowHeatTemperature = (wantedHeatTemperature - turnOnBelowHeatTemperatureValue).roundedValue
                 }
-                if let turnOffAboveHeatTemperatureValue = (try? container.decode(Float.self, forKey: .turnOffAboveHeatTemperatureValue))?.roundedFloatValue, turnOffAboveHeatTemperatureValue > wantedHeatTemperature {
-                    turnOffAboveHeatTemperature = (turnOffAboveHeatTemperatureValue - wantedHeatTemperature).roundedFloatValue
+                if let turnOffAboveHeatTemperatureValue = (try? container.decode(Double.self, forKey: .turnOffAboveHeatTemperatureValue))?.roundedValue, turnOffAboveHeatTemperatureValue > wantedHeatTemperature {
+                    turnOffAboveHeatTemperature = (turnOffAboveHeatTemperatureValue - wantedHeatTemperature).roundedValue
                 }
             }
-            turnOffBelowCoolTemperature = (try? container.decode(Float.self, forKey: .turnOffBelowCoolTemperature))?.roundedFloatValue
-            wantedCoolTemperature = (try? container.decode(Float.self, forKey: .wantedCoolTemperature))?.roundedFloatValue
-            turnOnAboveCoolTemperature = (try? container.decode(Float.self, forKey: .turnOnAboveCoolTemperature))?.roundedFloatValue
+            turnOffBelowCoolTemperature = (try? container.decode(Double.self, forKey: .turnOffBelowCoolTemperature))?.roundedValue
+            wantedCoolTemperature = (try? container.decode(Double.self, forKey: .wantedCoolTemperature))?.roundedValue
+            turnOnAboveCoolTemperature = (try? container.decode(Double.self, forKey: .turnOnAboveCoolTemperature))?.roundedValue
             if let wantedCoolTemperature = wantedCoolTemperature {
-                if let turnOffBelowCoolTemperatureValue = (try? container.decode(Float.self, forKey: .turnOffBelowCoolTemperatureValue))?.roundedFloatValue, turnOffBelowCoolTemperatureValue < wantedCoolTemperature {
-                    turnOffBelowCoolTemperature = (wantedCoolTemperature - turnOffBelowCoolTemperatureValue).roundedFloatValue
+                if let turnOffBelowCoolTemperatureValue = (try? container.decode(Double.self, forKey: .turnOffBelowCoolTemperatureValue))?.roundedValue, turnOffBelowCoolTemperatureValue < wantedCoolTemperature {
+                    turnOffBelowCoolTemperature = (wantedCoolTemperature - turnOffBelowCoolTemperatureValue).roundedValue
                 }
-                if let turnOnAboveCoolTemperatureValue = (try? container.decode(Float.self, forKey: .turnOnAboveCoolTemperatureValue))?.roundedFloatValue, turnOnAboveCoolTemperatureValue > wantedCoolTemperature {
-                    turnOnAboveCoolTemperature = (turnOnAboveCoolTemperatureValue - wantedCoolTemperature).roundedFloatValue
+                if let turnOnAboveCoolTemperatureValue = (try? container.decode(Double.self, forKey: .turnOnAboveCoolTemperatureValue))?.roundedValue, turnOnAboveCoolTemperatureValue > wantedCoolTemperature {
+                    turnOnAboveCoolTemperature = (turnOnAboveCoolTemperatureValue - wantedCoolTemperature).roundedValue
                 }
             }
-            maxTemperature = (try? container.decode(Float.self, forKey: .maxTemperature))?.roundedFloatValue
+            maxTemperature = (try? container.decode(Double.self, forKey: .maxTemperature))?.roundedValue
             
             checkValues()
         }
@@ -433,8 +440,8 @@ struct BrewContainerRouter {
                     let difference = heatMaxTemperature - coolMinTemperature
                     let split = Int(difference / 2)
                     let remainder = Int(difference.truncatingRemainder(dividingBy: 2))
-                    self.wantedHeatTemperature = (wantedHeatTemperature - Float(split) - Float(remainder)).roundedFloatValue
-                    self.wantedCoolTemperature = (wantedCoolTemperature + Float(split)).roundedFloatValue
+                    self.wantedHeatTemperature = (wantedHeatTemperature - Double(split) - Double(remainder)).roundedValue
+                    self.wantedCoolTemperature = (wantedCoolTemperature + Double(split)).roundedValue
                 }
             }
             
@@ -459,7 +466,9 @@ struct BrewContainerRouter {
             let authentication = try request.authentication()
             guard let container = try BrewContainer.collection.findOne("_id" == containerId, projecting: [
                 "_id",
-                "userId"
+                "userId",
+                "name",
+                "averageTemperature"
             ]) else {
                 throw ServerAbort(.notFound, reason: "Container not found")
             }
@@ -479,6 +488,14 @@ struct BrewContainerRouter {
             var didUpdateTemperatures = false
             if let name = temperatureData.name {
                 update["name"] = name
+            }
+            if let homeKitHidden = temperatureData.homeKitHidden {
+                update["homeKitHidden"] = homeKitHidden
+                if homeKitHidden {
+                    HomeKitProvider.shared.removeContainer(forId: containerId)
+                } else {
+                    try? HomeKitProvider.shared.upsert(container: container)
+                }
             }
             if let conflictActionValue = temperatureData.conflictAction, let conflictAction = BrewContainer.ConflictActionType(rawValue: conflictActionValue) {
                 update["conflictAction"] = conflictAction.rawValue

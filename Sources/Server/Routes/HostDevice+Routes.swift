@@ -152,7 +152,7 @@ struct HostDeviceRouter {
                 let hostPinDevices = try Device.collection.find("hostDeviceId" == hostDeviceId, projecting: [
                     "hostPin"
                 ])
-                var availablePins = Device.HostDevicePin.availablePins
+                var availablePins = Device.HostDevicePin.availablePins(particleDeviceType: type)
                 for device in hostPinDevices {
                     guard let hostPinValue = device["hostPin"]?.intValue, let hostPin = Device.HostDevicePin(rawValue: hostPinValue) else { continue }
                     availablePins.remove(hostPin)
@@ -226,6 +226,8 @@ struct HostDeviceRouter {
                 return try HostDevice.flash(request: request, hostDeviceId: hostDeviceId, hostDevice: hostDevice, promise: promise)
             } else if formData.action == "update" {
                 return try HostDevice.publishEvent(request: request, eventName: "forceUpdate", redirect: "/hostDevices/\(hostDeviceId.hexString)", promise: promise)
+            } else if formData.action == "firmware" {
+                return promise.succeed(result: request.serverStatusRedirect(status: .ok, to: "/hostDevices/\(hostDeviceId.hexString)/sourceCode"))
             }
             var update: Document = [:]
             if let name = formData.name {
@@ -601,7 +603,8 @@ struct HostDeviceRouter {
                 "hostDeviceId": hostDeviceId,
                 "notifications": formData.notifications ?? true,
                 "order": order,
-                "offline": true
+                "offline": true,
+                "homeKitHidden": false
             ]
             
             if formData.type.isSwitchDevice {
@@ -664,7 +667,7 @@ struct HostDeviceRouter {
                     let name = try hostDevice.extractString("name")
                     let typeValue = try hostDevice.extractInteger("type")
                     let pingedAt = (hostDevice["pingedAt"] as? Date)?.longString ?? "Never"
-                    let lastFlashed = (hostDevice["updatedAt"] as? Date)?.longString ?? "Never"
+                    let lastFlashed = (hostDevice["lastFlashedDate"] as? Date)?.longString ?? "Never"
                     let updateInterval = try hostDevice.extractInteger("updateInterval")
                     let needsUpdate = try hostDevice.extractBoolean("needsUpdate")
                     guard let type = HostDevice.ParticleDeviceType(rawValue: typeValue) else {

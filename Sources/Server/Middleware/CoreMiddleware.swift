@@ -62,13 +62,13 @@ final class CoreMiddleware: Middleware, Service {
                     let view = leaf.render("error", context)
                     view.do { view in
                         let response = Response(using: request.sharedContainer)
-                        response.http.headers.replaceOrAdd(name: .contentType, value: "text/html; charset=utf-8")
+                        response.http.headers.replaceOrAddVapor(name: .contentType, value: "text/html; charset=utf-8")
                         response.http.body = HTTPBody(data: view.data)
                         response.http.status = .ok
                         promise.succeed(result: response)
                     }.catch { error in
                         let response = Response(using: request.sharedContainer)
-                        response.http.headers.replaceOrAdd(name: .contentType, value: "text/plain")
+                        response.http.headers.replaceOrAddVapor(name: .contentType, value: "text/plain")
                         response.http.body = HTTPBody(string: error.localizedDescription)
                         response.http.status = errorResponse.status
                         promise.succeed(result: response)
@@ -76,7 +76,7 @@ final class CoreMiddleware: Middleware, Service {
                 }
             } catch {
                 let response = Response(using: request.sharedContainer)
-                response.http.headers.replaceOrAdd(name: .contentType, value: "text/plain")
+                response.http.headers.replaceOrAddVapor(name: .contentType, value: "text/plain")
                 response.http.body = HTTPBody(string: "\(errorResponse.title): \(errorResponse.message ?? "Fatal Error")")
                 response.http.status = errorResponse.status
                 promise.succeed(result: response)

@@ -41,6 +41,8 @@ struct AdminRouter {
         var mailgunApiKey: String?
         var mailgunApiKeySet: Bool?
         var admin: Bool?
+        var homeKitSetupUri: String?
+        var homeKitSetupCode: String?
         
         init() {
             registrationEnabled = Admin.settings.registrationEnabled
@@ -59,6 +61,8 @@ struct AdminRouter {
             mailgunFromEmail = Admin.settings.mailgunFromEmail
             mailgunApiUrl = Admin.settings.mailgunApiUrl
             mailgunApiKeySet = Admin.settings.mailgunApiKey != nil
+            homeKitSetupUri = HomeKitProvider.shared.bridge?.setupURI
+            homeKitSetupCode = HomeKitProvider.shared.bridge?.setupCode
         }
     }
     

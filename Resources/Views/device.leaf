@@ -198,6 +198,19 @@
                                     </div>
                                 </div>
                             </div>
+                            <div class="form-group">
+                                <label class="form-control-label" for="prependedInput">HomeKit</label>
+                                <div class="input-prepend input-group">
+                                    <div class="form-check">
+                                        <label class="form-check-label">
+                                            <input type="radio" class="form-check-input" name="homeKitHidden" id="optionsRadios1" value="false" #(homeKitHiddenDisabled)> Show
+                                        </label>
+                                        <label class="form-check-label">
+                                            <input type="radio" class="form-check-input" name="homeKitHidden" id="optionsRadios2" value="true" #(homeKitHiddenEnabled)> Hide
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
                             #if(temperatureSensor) {
                                 <div class="form-group">
                                     <label class="form-control-label" for="prependedInput">Min Temperature (&#176; Fahrenheit)</label>
